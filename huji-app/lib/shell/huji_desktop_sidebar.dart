@@ -108,7 +108,13 @@ class _AccountArea extends StatefulWidget {
 }
 
 class _AccountAreaState extends State<_AccountArea> {
-  final MenuController _menuController = MenuController();
+  final TpPopoverController _menuController = TpPopoverController();
+
+  @override
+  void dispose() {
+    _menuController.dispose();
+    super.dispose();
+  }
 
   String _displayName(HujiLocalizations l10n, UserState userState) {
     if (!userState.isLoggedIn) return l10n.accountNotLoggedIn;
@@ -122,7 +128,7 @@ class _AccountAreaState extends State<_AccountArea> {
 
   void _handleTap(bool isLoggedIn) {
     if (isLoggedIn) {
-      _menuController.open();
+      _menuController.show();
     } else {
       LoginDialog.show(context);
     }
@@ -202,23 +208,33 @@ class _AccountAreaState extends State<_AccountArea> {
 
     if (!isLoggedIn) return account;
 
-    return MenuAnchor(
+    return TpActionMenuAnchor(
       controller: _menuController,
-      menuChildren: [
-        MenuItemButton(
-          onPressed: () => context.go(DesktopRoutes.account),
-          child: Text(l10n.personalCenter),
-        ),
-        if (FeatureVisibility.instance.showSubscriptionPage)
-          MenuItemButton(
-            onPressed: () => context.push(SubscriptionRoute.subscription),
-            child: Text(l10n.subscriptionPlans),
+      popoverBuilder: (context, controller) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TpActionMenuItem(
+            icon: Icons.person_outline,
+            label: l10n.personalCenter,
+            menuController: controller,
+            onTap: () => context.go(DesktopRoutes.account),
           ),
-        MenuItemButton(
-          onPressed: _handleLogout,
-          child: Text(l10n.accountLogout),
-        ),
-      ],
+          if (FeatureVisibility.instance.showSubscriptionPage)
+            TpActionMenuItem(
+              icon: Icons.credit_card_outlined,
+              label: l10n.subscriptionPlans,
+              menuController: controller,
+              onTap: () => context.push(SubscriptionRoute.subscription),
+            ),
+          TpActionMenuItem(
+            icon: Icons.logout,
+            label: l10n.accountLogout,
+            menuController: controller,
+            onTap: _handleLogout,
+          ),
+        ],
+      ),
       child: account,
     );
   }
