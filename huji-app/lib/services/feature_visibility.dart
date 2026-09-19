@@ -12,7 +12,7 @@ class FeatureVisibility extends ChangeNotifier {
 
   static final FeatureVisibility instance = FeatureVisibility._();
 
-  bool _enableCloudClip = true;
+  bool _enableCloudClip = false;
   bool _showSubscriptionPage = true;
   bool _showAdPage = false;
   bool _loaded = false;

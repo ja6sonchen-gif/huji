@@ -58,7 +58,7 @@ class _DesktopClipConfigPageState extends State<DesktopClipConfigPage> {
   File? _selectedFile;
   String _sportType = _sportPingPong;
   String _selectedPreset = _presetDefault;
-  String _detectionMode = 'cloud';
+  String _detectionMode = 'local';
   bool _highlightClip = true;
   bool _removeReplay = true;
   bool _mergeAdjacent = false;
@@ -84,9 +84,7 @@ class _DesktopClipConfigPageState extends State<DesktopClipConfigPage> {
     if (!FeatureVisibility.instance.cloudClipAvailable &&
         _detectionMode == 'cloud') {
       setState(() {
-        _detectionMode = _localModelStatus == LocalModelStatus.available
-            ? 'local'
-            : 'cloud';
+        _detectionMode = 'local';
       });
       return;
     }
