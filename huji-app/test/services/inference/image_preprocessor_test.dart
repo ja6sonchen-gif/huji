@@ -2,69 +2,203 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:huji_app/services/inference/image_preprocessor.dart';
+import 'package:huji_app/utils/video_utils.dart';
 import 'package:image/image.dart' as img;
 
-Uint8List _png16x9Bars() {
-  const w = 320;
-  const h = 180;
-  final src = img.Image(width: w, height: h);
+Uint8List _pngBars({required int width, required int height, int bar = 20}) {
+  final src = img.Image(width: width, height: height);
   img.fill(src, color: img.ColorRgb8(0, 255, 0));
-  for (var y = 0; y < h; y++) {
-    for (var x = 0; x < 20; x++) {
-      src.setPixelRgb(x, y, 255, 0, 0);
-      src.setPixelRgb(w - 1 - x, y, 0, 0, 255);
+  if (width >= height) {
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < bar; x++) {
+        src.setPixelRgb(x, y, 255, 0, 0);
+        src.setPixelRgb(width - 1 - x, y, 0, 0, 255);
+      }
+    }
+  } else {
+    for (var x = 0; x < width; x++) {
+      for (var y = 0; y < bar; y++) {
+        src.setPixelRgb(x, y, 255, 0, 0);
+        src.setPixelRgb(x, height - 1 - y, 0, 0, 255);
+      }
     }
   }
   return Uint8List.fromList(img.encodePng(src));
 }
 
-void main() {
-  test('16:9 classify preprocess is center-crop, not letterbox pad 114', () {
-    const size = 64;
-    final out = ImagePreprocessor.decodeAndLetterbox(
-      _png16x9Bars(),
-      size: size,
-    );
-    expect(out.length, size * size * 3);
+int _pixel(int size, int x, int y) => (y * size + x) * 3;
 
-    int pixel(int x, int y) => (y * size + x) * 3;
-    final cx = pixel(size ~/ 2, size ~/ 2);
-    expect(
-      out[cx + 1],
-      greaterThan(200),
-      reason: 'center should stay green court',
-    );
-    expect(out[cx], lessThan(40));
+bool _isGreen(Uint8List out, int i) =>
+    out[i] < 40 && out[i + 1] > 200 && out[i + 2] < 40;
 
-    var leftRed = 0;
+int _edgeMatchCount(
+  Uint8List out,
+  int size, {
+  required bool left,
+  required bool top,
+  required int Function(Uint8List out, int i) score,
+}) {
+  var n = 0;
+  if (left) {
     for (var y = 0; y < size; y++) {
-      final i = pixel(0, y);
-      if (out[i] > 200 && out[i + 1] < 40) leftRed++;
+      if (score(out, _pixel(size, 0, y)) > 0) n++;
     }
-    expect(
-      leftRed,
-      lessThan(size ~/ 2),
-      reason: 'left edge is red — letterbox kept the side bars',
-    );
-
-    var topSum = 0;
+  }
+  if (top) {
     for (var x = 0; x < size; x++) {
-      final i = pixel(x, 0);
-      topSum += out[i] + out[i + 1] + out[i + 2];
+      if (score(out, _pixel(size, x, 0)) > 0) n++;
     }
-    final topMean = topSum / (size * 3);
-    expect(
-      (topMean - 114).abs(),
-      greaterThan(20),
-      reason: 'top row looks like letterbox pad 114',
-    );
+  }
+  return n;
+}
+
+void main() {
+  group('ImagePreprocessor.decodeAndLetterbox', () {
+    test('16:9 classify preprocess is center-crop, not letterbox pad 114', () {
+      const size = 64;
+      final out = ImagePreprocessor.decodeAndLetterbox(
+        _pngBars(width: 320, height: 180),
+        size: size,
+      );
+      expect(out.length, ImagePreprocessor.rgb24ByteLength(size, size));
+
+      final cx = _pixel(size, size ~/ 2, size ~/ 2);
+      expect(
+        _isGreen(out, cx),
+        isTrue,
+        reason: 'center should stay green court',
+      );
+
+      final leftRed = _edgeMatchCount(
+        out,
+        size,
+        left: true,
+        top: false,
+        score: (buf, i) => buf[i] > 200 && buf[i + 1] < 40 ? 1 : 0,
+      );
+      expect(
+        leftRed,
+        0,
+        reason: 'left edge is red — letterbox kept the side bars',
+      );
+
+      var topSum = 0;
+      for (var x = 0; x < size; x++) {
+        final i = _pixel(size, x, 0);
+        topSum += out[i] + out[i + 1] + out[i + 2];
+      }
+      final topMean = topSum / (size * 3);
+      expect(
+        (topMean - 114).abs(),
+        greaterThan(20),
+        reason: 'top row looks like letterbox pad 114',
+      );
+    });
+
+    test('9:16 classify preprocess crops top/bottom bars, not sides', () {
+      const size = 64;
+      final out = ImagePreprocessor.decodeAndLetterbox(
+        _pngBars(width: 180, height: 320),
+        size: size,
+      );
+      expect(out.length, ImagePreprocessor.rgb24ByteLength(size, size));
+      expect(
+        _isGreen(out, _pixel(size, size ~/ 2, size ~/ 2)),
+        isTrue,
+        reason: 'center should stay green court',
+      );
+
+      final topRed = _edgeMatchCount(
+        out,
+        size,
+        left: false,
+        top: true,
+        score: (buf, i) => buf[i] > 200 && buf[i + 1] < 40 ? 1 : 0,
+      );
+      expect(
+        topRed,
+        0,
+        reason: 'top edge is red — letterbox kept the portrait bars',
+      );
+    });
+
+    test('square source fills the crop without pad 114', () {
+      const size = 64;
+      final out = ImagePreprocessor.decodeAndLetterbox(
+        _pngBars(width: 80, height: 80, bar: 8),
+        size: size,
+      );
+      expect(out.length, ImagePreprocessor.rgb24ByteLength(size, size));
+      expect(_isGreen(out, _pixel(size, size ~/ 2, size ~/ 2)), isTrue);
+
+      var leftRed = 0;
+      for (var y = 0; y < size; y++) {
+        final i = _pixel(size, 0, y);
+        if (out[i] > 200 && out[i + 1] < 40) leftRed++;
+      }
+      expect(
+        leftRed,
+        greaterThan(size ~/ 2),
+        reason: 'side bars should remain',
+      );
+    });
+
+    test('undecodable bytes throw ArgumentError', () {
+      expect(
+        () =>
+            ImagePreprocessor.decodeAndLetterbox(Uint8List.fromList([0, 1, 2])),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
   });
 
-  test('ffmpeg classify filter covers then crops, does not pad', () {
-    final vf = ImagePreprocessor.ffmpegClassifyVf(fps: 6);
-    expect(vf, contains('force_original_aspect_ratio=increase'));
-    expect(vf, contains('crop=640:640'));
-    expect(vf, isNot(contains('decrease')));
-    expect(vf, isNot(contains('pad=')));
+  group('ImagePreprocessor.ffmpegClassifyVf', () {
+    test('covers then crops, does not pad', () {
+      final vf = ImagePreprocessor.ffmpegClassifyVf(fps: 6);
+      expect(vf, contains('fps=6'));
+      expect(
+        vf,
+        contains('scale=640:640:force_original_aspect_ratio=increase'),
+      );
+      expect(vf, contains('crop=640:640'));
+      expect(vf, isNot(contains('decrease')));
+      expect(vf, isNot(contains('pad=')));
+    });
+
+    test('honors custom size', () {
+      final vf = ImagePreprocessor.ffmpegClassifyVf(fps: 3, size: 224);
+      expect(
+        vf,
+        contains('scale=224:224:force_original_aspect_ratio=increase'),
+      );
+      expect(vf, contains('crop=224:224'));
+    });
+  });
+
+  group('VideoUtils classify extract', () {
+    test('intervalExtractRawRgbFrames rejects non-square crop', () async {
+      await expectLater(
+        VideoUtils.intervalExtractRawRgbFrames(
+          videoPath: 'missing.mp4',
+          frameInterval: 1,
+          tempDir: '/tmp',
+          width: 640,
+          height: 480,
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('streamIntervalRawRgbFrames rejects non-square crop', () async {
+      await expectLater(
+        VideoUtils.streamIntervalRawRgbFrames(
+          videoPath: 'missing.mp4',
+          frameInterval: 1,
+          width: 320,
+          height: 240,
+        ).first,
+        throwsA(isA<ArgumentError>()),
+      );
+    });
   });
 }
