@@ -74,7 +74,7 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
     );
 
     double currentTime = 0;
-    // 直接抽 letterbox 到模型输入尺寸的 RGB24 裸帧：缩放/填充由 FFmpeg 完成，
+    // 直接抽 classify 中心裁剪到模型输入尺寸的 RGB24 裸帧：缩放/裁剪由 FFmpeg 完成，
     // 预测侧免掉 Dart PNG 解码（纯 Dart image 包解码每帧要数百毫秒）。
     final frameSize = ImagePreprocessor.inputSize;
     final thumbnailsStream =
@@ -88,9 +88,7 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
           // 直接返回文件路径，而不是读取字节
           return Tuple(item1: currentTime, item2: e);
         });
-    AppLogger().i(
-      '抽帧流创建: 视频路径=$videoPath, 临时目录=${tempDir.path}',
-    );
+    AppLogger().i('抽帧流创建: 视频路径=$videoPath, 临时目录=${tempDir.path}');
     return thumbnailsStream;
   }
 

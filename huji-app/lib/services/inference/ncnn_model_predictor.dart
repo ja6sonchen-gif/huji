@@ -121,18 +121,23 @@ class NcnnModelPredictor implements ModelPredictor {
     });
   }
 
-  /// Classify a pre-letterboxed RGB24 frame (skips PNG decode / Dart resize).
+  /// Classify a pre-cropped RGB24 frame (skips PNG decode / Dart resize).
   Future<ActionType> predictRgb24(
     Uint8List rgb,
     int width,
     int height,
     Map<String, ActionType> classMappings,
   ) async {
-    final result = await predictRgb24ForResult(rgb, width, height, classMappings);
+    final result = await predictRgb24ForResult(
+      rgb,
+      width,
+      height,
+      classMappings,
+    );
     return _mapClassName(result.classification.topClass, classMappings);
   }
 
-  /// Classify a pre-letterboxed RGB24 frame file written by FFmpeg
+  /// Classify a pre-cropped RGB24 frame file written by FFmpeg
   /// (exactly [width]*[height]*3 bytes per file).
   @override
   Future<ActionType> predictRgb24FromFile(
@@ -195,7 +200,12 @@ class NcnnModelPredictor implements ModelPredictor {
           className: topClass,
           confidence: topConfidence,
           boundingBox: const BoundingBox(left: 0, top: 0, right: 0, bottom: 0),
-          normalizedBox: const BoundingBox(left: 0, top: 0, right: 0, bottom: 0),
+          normalizedBox: const BoundingBox(
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+          ),
         ),
       ],
     );

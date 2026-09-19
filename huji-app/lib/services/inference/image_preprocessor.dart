@@ -1,58 +1,72 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
-/// PNG decode + YOLO letterbox for ncnn classify models.
+/// PNG/JPEG decode + YOLO classify preprocess for ncnn models.
 ///
-/// Normalization (/255) happens natively inside the ncnn shim
-/// (`Mat::substract_mean_normalize`), so no Dart-side tensor conversion
-/// is needed — the engine consumes RGB24 bytes directly.
+/// Matches ultralytics classify / torchvision:
+/// Resize(short side = size, long side int-truncated, bilinear) →
+/// CenterCrop(size). Normalization (/255) happens natively inside the ncnn
+/// shim (`Mat::substract_mean_normalize`), so the engine consumes RGB24
+/// bytes directly.
 class ImagePreprocessor {
   ImagePreprocessor._();
 
   static const inputSize = 640;
-  /// Ultralytics YOLO classify letterbox pad (also used by ffmpeg RGB extract).
-  static const padValue = 114;
 
-  /// Expected byte length of a letterboxed RGB24 frame.
+  /// Expected byte length of a classified RGB24 frame.
   static int rgb24ByteLength(int width, int height) => width * height * 3;
 
-  /// Hex color string for ffmpeg `pad=...:color=` (RRGGBB).
-  static String get padColorHex {
-    final v = padValue.toRadixString(16).padLeft(2, '0');
-    return '0x$v$v$v';
+  /// FFmpeg vf that covers then center-crops to [size]×[size] (no pad 114).
+  ///
+  /// `force_original_aspect_ratio=increase` is the same geometry as
+  /// ultralytics Resize(short side = size); default `crop` is centered.
+  static String ffmpegClassifyVf({required num fps, int size = inputSize}) {
+    return 'fps=$fps,'
+        'scale=$size:$size:force_original_aspect_ratio=increase:flags=bilinear,'
+        'crop=$size:$size';
   }
 
-  /// Decode PNG/JPEG bytes, letterbox to [size]×[size], return RGB HWC bytes.
-  static Uint8List decodeAndLetterbox(Uint8List imageBytes, {int size = inputSize}) {
+  /// Decode PNG/JPEG bytes, classify-crop to [size]×[size], return RGB HWC bytes.
+  static Uint8List decodeAndLetterbox(
+    Uint8List imageBytes, {
+    int size = inputSize,
+  }) {
     final decoded = img.decodeImage(imageBytes);
     if (decoded == null) {
-      throw ArgumentError('Unable to decode image (${imageBytes.length} bytes)');
+      throw ArgumentError(
+        'Unable to decode image (${imageBytes.length} bytes)',
+      );
     }
 
     final rgb = _ensureRgb(decoded);
+    final w = rgb.width;
+    final h = rgb.height;
+    late final int newW;
+    late final int newH;
+    if (w < h) {
+      newW = size;
+      newH = (size * h / w).toInt().clamp(1, 1 << 20);
+    } else {
+      newW = (size * w / h).toInt().clamp(1, 1 << 20);
+      newH = size;
+    }
 
-    final scale = math.min(size / rgb.width, size / rgb.height);
-    final newW = (rgb.width * scale).round().clamp(1, size);
-    final newH = (rgb.height * scale).round().clamp(1, size);
     final resized = img.copyResize(
       rgb,
       width: newW,
       height: newH,
-      interpolation: img.Interpolation.cubic,
+      interpolation: img.Interpolation.linear,
     );
-
-    final canvas = img.Image(width: size, height: size);
-    img.fill(canvas, color: img.ColorRgb8(padValue, padValue, padValue));
-    img.compositeImage(
-      canvas,
+    final cropped = img.copyCrop(
       resized,
-      dstX: (size - newW) ~/ 2,
-      dstY: (size - newH) ~/ 2,
+      x: (newW - size) ~/ 2,
+      y: (newH - size) ~/ 2,
+      width: size,
+      height: size,
     );
 
-    return canvas.getBytes(order: img.ChannelOrder.rgb);
+    return cropped.getBytes(order: img.ChannelOrder.rgb);
   }
 
   static img.Image _ensureRgb(img.Image src) {

@@ -20,7 +20,7 @@ abstract class ModelPredictor {
     Map<String, ActionType> classMappings,
   );
 
-  /// 分类 FFmpeg 输出的 letterboxed RGB24 裸帧文件（width×height×3 字节），
+  /// 分类 FFmpeg 输出的 classify 裁剪 RGB24 裸帧文件（width×height×3 字节），
   /// 跳过图片解码，供视频抽帧推理走快路径。
   Future<ActionType> predictRgb24FromFile(
     String rgbFilePath,

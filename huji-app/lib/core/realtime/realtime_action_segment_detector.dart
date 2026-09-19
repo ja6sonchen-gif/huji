@@ -21,7 +21,7 @@ class _PendingPredictionTask {
   final String imagePath;
   final double timestamp;
 
-  /// true 时 [imagePath] 指向 FFmpeg 输出的 letterboxed RGB24 裸帧文件
+  /// true 时 [imagePath] 指向 FFmpeg 输出的 classify 裁剪 RGB24 裸帧文件
   /// （size×size×3 字节），直接喂 [predictRgb24FromFile]，跳过图片解码。
   final bool isRgb24Frame;
 
@@ -76,7 +76,6 @@ abstract class RealtimeActionSegmentDetector<C extends VideoClipConfigReqVo>
   }) : _modelPredictor = modelPredictor {
     _classMappings = getClassesMapping(config);
   }
-
 
   /// 添加监听器
   void addListener(RealtimeSegmentListener listener) {
@@ -133,7 +132,7 @@ abstract class RealtimeActionSegmentDetector<C extends VideoClipConfigReqVo>
     _processPendingPredictionQueue();
   }
 
-  /// 添加 letterboxed RGB24 裸帧文件（FFmpeg 输出，跳过图片解码）
+  /// 添加 classify 裁剪 RGB24 裸帧文件（FFmpeg 输出，跳过图片解码）
   Future<void> addRgb24Prediction(
     String rgbPath,
     double timestamp, {

@@ -48,9 +48,8 @@ class CleanableFileCollection {
 
 /// Isolate-safe prediction cache backed by plain files (no Flutter binding).
 class _PredictionFileCache {
-  static Directory get _cacheDir => Directory(
-        path.join(Directory.systemTemp.path, 'huji_prediction_cache'),
-      );
+  static Directory get _cacheDir =>
+      Directory(path.join(Directory.systemTemp.path, 'huji_prediction_cache'));
 
   static Future<File> _cacheFileFor(String videoPath) async {
     final digest = sha256.convert(utf8.encode(videoPath)).toString();
@@ -64,7 +63,9 @@ class _PredictionFileCache {
     final raw = json.decode(await file.readAsString());
     if (raw is! List) return null;
     return raw
-        .map((item) => PredictedFrameInfo.fromJson(item as Map<String, dynamic>))
+        .map(
+          (item) => PredictedFrameInfo.fromJson(item as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -136,7 +137,6 @@ abstract class BatchActionSegmentDetector<C extends VideoClipConfigReqVo>
         duration: videoSegmentInfo.endTime - videoSegmentInfo.startTime,
         width: size,
         height: size,
-        padValue: ImagePreprocessor.padValue,
       ),
       perSecondFrames: perSecondFrames,
       videoSegmentInfo: videoSegmentInfo,
@@ -183,7 +183,10 @@ abstract class BatchActionSegmentDetector<C extends VideoClipConfigReqVo>
     return results;
   }
 
-  static int _ncnnWorkerCount(int segmentCount, {required bool useAccelerator}) {
+  static int _ncnnWorkerCount(
+    int segmentCount, {
+    required bool useAccelerator,
+  }) {
     // Multiple Vulkan nets burn VRAM and rarely help classify latency; keep
     // one GPU worker and rely on ncnn/Vulkan throughput. CPU still
     // parallelizes.
@@ -377,7 +380,10 @@ abstract class BatchActionSegmentDetector<C extends VideoClipConfigReqVo>
       progressHandler?.complete(videoOutputInfo);
     } catch (e, stackTrace) {
       _logger.e('处理视频失败', error: e, stackTrace: stackTrace);
-      progressHandler?.reportError(resolveHujiL10n().processVideoFailed, details: e.toString());
+      progressHandler?.reportError(
+        resolveHujiL10n().processVideoFailed,
+        details: e.toString(),
+      );
       rethrow;
     }
   }

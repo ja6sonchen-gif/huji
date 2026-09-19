@@ -733,10 +733,7 @@ class VideoUtils {
       }
     }
 
-    return FFmpegRunner.instance.execute(
-      fallbackArgs,
-      onProgress: onProgress,
-    );
+    return FFmpegRunner.instance.execute(fallbackArgs, onProgress: onProgress);
   }
 
   /// 尝试Android平台的软件编码器
@@ -980,7 +977,7 @@ class VideoUtils {
   ///
   /// 参数:
   /// - videoPath: 输入视频文件路径
-   /// - dirPath: 输出目录路径（可选，默认为应用文档目录下的 thumbnails/）
+  /// - dirPath: 输出目录路径（可选，默认为应用文档目录下的 thumbnails/）
   /// - fileName: 输出文件名（可选，默认为thumbnail.png）
   /// - timeOffset: 截取时间点（秒，可选，默认为1秒）
   /// - width: 缩略图宽度（可选，默认为320）
@@ -1004,7 +1001,9 @@ class VideoUtils {
       final fileType = FileSystemEntity.typeSync(videoPath);
       if (fileType == FileSystemEntityType.directory) {
         throw Exception(
-          resolveHujiL10n().thumbnailGenerationFailed('$videoPath: Is a directory'),
+          resolveHujiL10n().thumbnailGenerationFailed(
+            '$videoPath: Is a directory',
+          ),
         );
       }
       throw FileSystemException(
@@ -1093,8 +1092,8 @@ class VideoUtils {
   ///
   /// 返回一个Stream，每生成一个缩略图就会发送其文件路径
   ///
-  /// [letterboxSize] 非空时改为输出 letterbox 到正方形的 RGB24 裸帧
-  /// （每帧恰好 size×size×3 字节，供 ONNX [predictRgb24] 直接推理，
+  /// [letterboxSize] 非空时改为输出 classify 中心裁剪到正方形的 RGB24 裸帧
+  /// （每帧恰好 size×size×3 字节，供 ncnn [predictRgb24] 直接推理，
   /// 跳过 Dart 侧图片解码）。
   static Future<Stream<String>> generateThumbnails(
     String videoPath,
@@ -1331,10 +1330,11 @@ class VideoUtils {
     return controller.stream;
   }
 
-  /// Extract letterboxed RGB24 frames for desktop ONNX (skips PNG encode/decode).
+  /// Extract classify-cropped RGB24 frames (skips PNG encode/decode).
   ///
   /// Output files: `000001.rgb`, … each exactly [width]*[height]*3 bytes.
   /// Prefer [streamIntervalRawRgbFrames] to avoid filling /tmp.
+  /// [width] and [height] must match (YOLO classify square crop).
   static Future<void> intervalExtractRawRgbFrames({
     required String videoPath,
     required int frameInterval,
@@ -1343,13 +1343,16 @@ class VideoUtils {
     double? duration,
     int width = 640,
     int height = 640,
-    int padValue = 114,
   }) async {
-    final padHex = padValue.toRadixString(16).padLeft(2, '0');
-    final vf =
-        'fps=$frameInterval,'
-        'scale=$width:$height:force_original_aspect_ratio=decrease:flags=bicubic,'
-        'pad=$width:$height:(ow-iw)/2:(oh-ih)/2:color=0x$padHex$padHex$padHex';
+    if (width != height) {
+      throw ArgumentError(
+        'classify RGB extract requires a square crop, got ${width}x$height',
+      );
+    }
+    final vf = ImagePreprocessor.ffmpegClassifyVf(
+      fps: frameInterval,
+      size: width,
+    );
 
     final args = <String>['-loglevel', logLevel];
     if (startTime != null && startTime > 0) {
@@ -1381,7 +1384,7 @@ class VideoUtils {
     }
   }
 
-  /// Stream letterboxed RGB24 frames from ffmpeg stdout (no temp frame files).
+  /// Stream classify-cropped RGB24 frames from ffmpeg stdout (no temp files).
   ///
   /// Each event is exactly [width]*[height]*3 bytes. Avoids Disk quota errors
   /// from parallel chunk extracts writing hundreds of MB under /tmp.
@@ -1397,8 +1400,12 @@ class VideoUtils {
     double? duration,
     int width = 640,
     int height = 640,
-    int padValue = 114,
   }) async* {
+    if (width != height) {
+      throw ArgumentError(
+        'classify RGB extract requires a square crop, got ${width}x$height',
+      );
+    }
     if (PlatformCapability.supportsFFmpegKit) {
       yield* _streamIntervalRawRgbFramesFromFiles(
         videoPath: videoPath,
@@ -1407,16 +1414,14 @@ class VideoUtils {
         duration: duration,
         width: width,
         height: height,
-        padValue: padValue,
       );
       return;
     }
 
-    final padHex = padValue.toRadixString(16).padLeft(2, '0');
-    final vf =
-        'fps=$frameInterval,'
-        'scale=$width:$height:force_original_aspect_ratio=decrease:flags=bicubic,'
-        'pad=$width:$height:(ow-iw)/2:(oh-ih)/2:color=0x$padHex$padHex$padHex';
+    final vf = ImagePreprocessor.ffmpegClassifyVf(
+      fps: frameInterval,
+      size: width,
+    );
 
     final args = <String>['-loglevel', logLevel];
     if (startTime != null && startTime > 0) {
@@ -1426,15 +1431,7 @@ class VideoUtils {
     if (duration != null && duration > 0) {
       args.addAll(['-t', duration.toString()]);
     }
-    args.addAll([
-      '-vf',
-      vf,
-      '-f',
-      'rawvideo',
-      '-pix_fmt',
-      'rgb24',
-      'pipe:1',
-    ]);
+    args.addAll(['-vf', vf, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
 
     final process = await FFmpegRunner.instance.start(args);
     final stderrBuf = StringBuffer();
@@ -1492,7 +1489,6 @@ class VideoUtils {
     double? duration,
     int width = 640,
     int height = 640,
-    int padValue = 114,
   }) async* {
     final tempDir = await storage.createTempInCleanupDirectory(
       prefix: 'stream_frames_',
@@ -1507,16 +1503,17 @@ class VideoUtils {
         duration: duration,
         width: width,
         height: height,
-        padValue: padValue,
       );
 
       final frameSize = width * height * 3;
       var index = 1;
       while (true) {
-        final file = File(path.join(tempDir.path, '%06d.rgb'.replaceFirst(
-          '%06d',
-          index.toString().padLeft(6, '0'),
-        )));
+        final file = File(
+          path.join(
+            tempDir.path,
+            '%06d.rgb'.replaceFirst('%06d', index.toString().padLeft(6, '0')),
+          ),
+        );
         if (!await file.exists()) break;
         final bytes = await file.readAsBytes();
         if (bytes.length != frameSize) {
@@ -1547,7 +1544,6 @@ class VideoUtils {
     int? quality,
     String format = 'png',
     int? letterboxSize,
-    int padValue = ImagePreprocessor.padValue,
     Future<void> Function()? completeCallback,
   }) async {
     if (!await File(videoPath).exists()) {
@@ -1573,24 +1569,19 @@ class VideoUtils {
     final commands = ['-loglevel', logLevel, '-i', videoPath];
 
     commands.add('-vf');
-    final vf = <String>[];
-    vf.add('fps=$interval');
     if (letterboxSize != null) {
-      // Letterbox 到模型输入尺寸的 RGB24 裸帧：缩放/填充由 FFmpeg 原生完成，
-      // 省去 Dart 侧 PNG 解码 + resize（每帧数百毫秒的开销）。
-      final padHex = padValue.toRadixString(16).padLeft(2, '0');
-      vf.add(
-        'scale=$letterboxSize:$letterboxSize'
-        ':force_original_aspect_ratio=decrease:flags=bicubic',
+      // Classify 中心裁剪到模型输入尺寸的 RGB24 裸帧：缩放/裁剪由 FFmpeg
+      // 完成，省去 Dart 侧 PNG 解码 + resize（每帧数百毫秒的开销）。
+      commands.add(
+        ImagePreprocessor.ffmpegClassifyVf(fps: interval, size: letterboxSize),
       );
-      vf.add(
-        'pad=$letterboxSize:$letterboxSize:(ow-iw)/2:(oh-ih)/2'
-        ':color=0x$padHex$padHex$padHex',
-      );
-    } else if (width != null) {
-      vf.add('scale=$width:-1');
+    } else {
+      final vf = <String>['fps=$interval'];
+      if (width != null) {
+        vf.add('scale=$width:-1');
+      }
+      commands.add(vf.join(','));
     }
-    commands.add(vf.join(','));
 
     if (letterboxSize != null) {
       commands.addAll([
