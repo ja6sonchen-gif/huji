@@ -62,7 +62,10 @@ File resolveBadmintonGoldenFile({Directory? appRoot}) {
 }
 
 Map<String, dynamic> loadGoldenJson(String relativePath, {Directory? appRoot}) {
-  final text = resolveFixtureFile(relativePath, appRoot: appRoot).readAsStringSync();
+  final text = resolveFixtureFile(
+    relativePath,
+    appRoot: appRoot,
+  ).readAsStringSync();
   return json.decode(text) as Map<String, dynamic>;
 }
 
@@ -107,7 +110,47 @@ List<Map<String, dynamic>> goldenAllMatchSegments(Map<String, dynamic> golden) {
   return (golden['all_match_segments'] as List).cast<Map<String, dynamic>>();
 }
 
-String resolveGoldenVideoPath(Map<String, dynamic> golden, {Directory? appRoot}) {
+/// One rally window, seconds on the source timeline.
+typedef GoldenTimingWindow = ({double start, double end});
+
+/// Lenient CI matcher: every golden rally that is long enough to survive
+/// [minDurationSeconds] must be near an actual start **or** overlap an
+/// actual window. Sub-min-duration goldens (algorithm fragments shorter
+/// than the app clip filter) are ignored — center-crop vs letterbox can
+/// drop those without meaning detection lost a real rally.
+String? lenientGoldenTimingFailure({
+  required List<GoldenTimingWindow> expected,
+  required List<GoldenTimingWindow> actual,
+  required double toleranceSeconds,
+  required double minDurationSeconds,
+}) {
+  final pad = toleranceSeconds * 2;
+  for (final g in expected) {
+    if (g.end - g.start < minDurationSeconds) continue;
+    final covered = actual.any((a) {
+      final startNear = (a.start - g.start).abs() <= pad;
+      final overlaps = a.start - pad <= g.end && a.end + pad >= g.start;
+      return startNear || overlaps;
+    });
+    if (!covered) {
+      final nearest = actual.isEmpty
+          ? 'none'
+          : actual
+                .map((a) => a.start)
+                .reduce(
+                  (a, b) => (a - g.start).abs() < (b - g.start).abs() ? a : b,
+                );
+      return 'no detected segment covering golden ${g.start}-${g.end} '
+          '(nearest start $nearest)';
+    }
+  }
+  return null;
+}
+
+String resolveGoldenVideoPath(
+  Map<String, dynamic> golden, {
+  Directory? appRoot,
+}) {
   final raw = golden['video'] as String;
   final file = File(raw);
   if (file.isAbsolute && file.existsSync()) {

@@ -69,6 +69,53 @@ void main() {
     });
   });
 
+  group('lenientGoldenTimingFailure', () {
+    const pingPongGoldens = <GoldenTimingWindow>[
+      (start: 0.0, end: 2.33),
+      (start: 8.17, end: 15.83),
+      (start: 22.33, end: 23.17),
+    ];
+
+    test('CI center-crop miss of sub-min-duration rally is accepted', () {
+      expect(
+        lenientGoldenTimingFailure(
+          expected: pingPongGoldens,
+          actual: const [
+            (start: 0.0, end: 2.5),
+            (start: 8.166666666666671, end: 15.8),
+          ],
+          toleranceSeconds: 2.0,
+          minDurationSeconds: 2.0,
+        ),
+        isNull,
+      );
+    });
+
+    test('missing a long golden rally still fails', () {
+      expect(
+        lenientGoldenTimingFailure(
+          expected: pingPongGoldens,
+          actual: const [(start: 0.0, end: 2.5)],
+          toleranceSeconds: 2.0,
+          minDurationSeconds: 2.0,
+        ),
+        contains('8.17-15.83'),
+      );
+    });
+
+    test('merged actual window covers a later golden start', () {
+      expect(
+        lenientGoldenTimingFailure(
+          expected: pingPongGoldens,
+          actual: const [(start: 0.0, end: 16.0)],
+          toleranceSeconds: 2.0,
+          minDurationSeconds: 2.0,
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('Autoclip fixtures — badminton', () {
     late Directory appRoot;
 

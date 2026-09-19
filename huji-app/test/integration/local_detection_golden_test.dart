@@ -74,8 +74,7 @@ void main() {
   // macOS plugin support — set NCNN_STRICT_GOLDENS=1 (locally or on a
   // dedicated job) to hold the strict assertions while the merge logic is
   // being aligned; CI keeps the lenient mode below.
-  final strictGoldens =
-      Platform.environment['NCNN_STRICT_GOLDENS'] == '1';
+  final strictGoldens = Platform.environment['NCNN_STRICT_GOLDENS'] == '1';
 
   // Lenient-mode segment-count band. The app's segment merge diverges from
   // the algorithm goldens (see the strictGoldens comment), and the magnitude
@@ -130,7 +129,10 @@ void main() {
         }
 
         final appRoot = findAppRoot();
-        final videoPath = resolveFixtureFile(testCase.videoRel, appRoot: appRoot).path;
+        final videoPath = resolveFixtureFile(
+          testCase.videoRel,
+          appRoot: appRoot,
+        ).path;
         final golden = loadGoldenJson(testCase.goldenRel, appRoot: appRoot);
         final expectedCount = golden['all_match_segment_count'] as int;
 
@@ -149,7 +151,10 @@ void main() {
           expect(actualCount, greaterThan(0));
           expect(
             actualCount,
-            inInclusiveRange(goldenBandLow(expectedCount), goldenBandHigh(expectedCount)),
+            inInclusiveRange(
+              goldenBandLow(expectedCount),
+              goldenBandHigh(expectedCount),
+            ),
             reason: 'segment count wildly off golden ($expectedCount)',
           );
           return;
@@ -175,7 +180,10 @@ void main() {
 
         const toleranceSeconds = 2.0;
         final appRoot = findAppRoot();
-        final videoPath = resolveFixtureFile(testCase.videoRel, appRoot: appRoot).path;
+        final videoPath = resolveFixtureFile(
+          testCase.videoRel,
+          appRoot: appRoot,
+        ).path;
         final golden = loadGoldenJson(testCase.goldenRel, appRoot: appRoot);
         final expectedSegments = goldenAllMatchSegments(golden);
 
@@ -191,35 +199,40 @@ void main() {
         if (!strictGoldens) {
           // Lenient mode: compare against the union of both timelines
           // rather than index-aligned (segment merge reorders/merges).
-          final actualStarts = actualSegments
-              .map((m) => m.values.first.startSeconds)
-              .toList()
-            ..sort();
-          final expectedStarts = expectedSegments
-              .map((s) => (s['start'] as num).toDouble())
-              .toList()
-            ..sort();
+          final expectedWindows = expectedSegments
+              .map(
+                (s) => (
+                  start: (s['start'] as num).toDouble(),
+                  end: (s['end'] as num).toDouble(),
+                ),
+              )
+              .toList();
+          final actualWindows = actualSegments
+              .map(
+                (m) => (
+                  start: m.values.first.startSeconds,
+                  end: m.values.first.endSeconds,
+                ),
+              )
+              .toList();
           expect(
-            actualStarts.length,
-            inInclusiveRange(goldenBandLow(expectedStarts.length), goldenBandHigh(expectedStarts.length)),
-            reason: 'segment count wildly off golden (${expectedStarts.length})',
+            actualWindows.length,
+            inInclusiveRange(
+              goldenBandLow(expectedWindows.length),
+              goldenBandHigh(expectedWindows.length),
+            ),
+            reason:
+                'segment count wildly off golden (${expectedWindows.length})',
           );
-          // Compare from the golden timeline's perspective: every golden
-          // start must have a detected segment near it (merge may have
-          // split one golden segment into several).
-          for (var i = 0; i < expectedStarts.length; i++) {
-            final nearest = actualStarts
-                .reduce((a, b) => (a - expectedStarts[i]).abs() <
-                        (b - expectedStarts[i]).abs()
-                    ? a
-                    : b);
-            expect(
-              (nearest - expectedStarts[i]).abs(),
-              lessThanOrEqualTo(toleranceSeconds * 2),
-              reason: 'no detected segment near golden start '
-                  '${expectedStarts[i]} (nearest $nearest)',
-            );
-          }
+          final minDuration =
+              testCase.clipConfig().minimumDurationSingleRound ?? 0;
+          final failure = lenientGoldenTimingFailure(
+            expected: expectedWindows,
+            actual: actualWindows,
+            toleranceSeconds: toleranceSeconds,
+            minDurationSeconds: minDuration,
+          );
+          expect(failure, isNull, reason: failure);
           return;
         }
         expect(actualSegments.length, expectedSegments.length);
@@ -254,11 +267,14 @@ void main() {
         }
 
         final appRoot = findAppRoot();
-        final videoPath = resolveFixtureFile(testCase.videoRel, appRoot: appRoot).path;
+        final videoPath = resolveFixtureFile(
+          testCase.videoRel,
+          appRoot: appRoot,
+        ).path;
         final golden = loadGoldenJson(testCase.goldenRel, appRoot: appRoot);
-        final expectedActions = goldenAllMatchSegments(golden)
-            .map((s) => normalizeActionName(s['action'] as String))
-            .toSet();
+        final expectedActions = goldenAllMatchSegments(
+          golden,
+        ).map((s) => normalizeActionName(s['action'] as String)).toSet();
 
         final service = LocalDetectionService();
         final result = await service.runAutoclip(
@@ -283,7 +299,8 @@ void main() {
           expect(
             actualActions.contains(dominant),
             isTrue,
-            reason: 'dominant golden action $dominant missing in $actualActions',
+            reason:
+                'dominant golden action $dominant missing in $actualActions',
           );
           return;
         }
@@ -296,39 +313,49 @@ void main() {
         }
       }, timeout: const Timeout(Duration(minutes: 15)));
 
-      test('runInferenceAsync via worker isolate matches golden segment count', () async {
-        if (!PlatformCapability.isDesktop) {
-          return;
-        }
-        if (!ncnnAvailable) {
-          markTestSkipped('ncnn native plugin not available in test VM');
-          return;
-        }
+      test(
+        'runInferenceAsync via worker isolate matches golden segment count',
+        () async {
+          if (!PlatformCapability.isDesktop) {
+            return;
+          }
+          if (!ncnnAvailable) {
+            markTestSkipped('ncnn native plugin not available in test VM');
+            return;
+          }
 
-        final appRoot = findAppRoot();
-        final videoPath = resolveFixtureFile(testCase.videoRel, appRoot: appRoot).path;
-        final golden = loadGoldenJson(testCase.goldenRel, appRoot: appRoot);
-        final expectedCount = golden['all_match_segment_count'] as int;
+          final appRoot = findAppRoot();
+          final videoPath = resolveFixtureFile(
+            testCase.videoRel,
+            appRoot: appRoot,
+          ).path;
+          final golden = loadGoldenJson(testCase.goldenRel, appRoot: appRoot);
+          final expectedCount = golden['all_match_segment_count'] as int;
 
-        final result = await LocalDetectionService.runInferenceAsync(
-          videoPath: videoPath,
-          clipConfig: testCase.clipConfig(),
-          sportTypeKey: testCase.sportTypeKey,
-          matchType: testCase.matchType,
-        );
-
-        final actualCount = result.clipOutput.allMatchSegments.length;
-        if (!strictGoldens) {
-          expect(actualCount, greaterThan(0));
-          expect(
-            actualCount,
-            inInclusiveRange(goldenBandLow(expectedCount), goldenBandHigh(expectedCount)),
-            reason: 'segment count wildly off golden ($expectedCount)',
+          final result = await LocalDetectionService.runInferenceAsync(
+            videoPath: videoPath,
+            clipConfig: testCase.clipConfig(),
+            sportTypeKey: testCase.sportTypeKey,
+            matchType: testCase.matchType,
           );
-          return;
-        }
-        expect(actualCount, expectedCount);
-      }, timeout: const Timeout(Duration(minutes: 15)));
+
+          final actualCount = result.clipOutput.allMatchSegments.length;
+          if (!strictGoldens) {
+            expect(actualCount, greaterThan(0));
+            expect(
+              actualCount,
+              inInclusiveRange(
+                goldenBandLow(expectedCount),
+                goldenBandHigh(expectedCount),
+              ),
+              reason: 'segment count wildly off golden ($expectedCount)',
+            );
+            return;
+          }
+          expect(actualCount, expectedCount);
+        },
+        timeout: const Timeout(Duration(minutes: 15)),
+      );
     });
   }
 }
