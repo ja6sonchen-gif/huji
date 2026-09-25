@@ -324,7 +324,10 @@ void main() {
         final pts = (packetJson['packets'] as List)
             .cast<Map<String, dynamic>>()
             .map((packet) => double.parse(packet['pts_time'] as String))
-            .toList();
+            .toList()
+          // ffprobe lists H.264 packets in decode (DTS) order; B-frames have
+          // non-monotonic PTS in that order. Validate the presentation timeline.
+          ..sort();
         expect(pts.length, greaterThan(fps));
         for (var index = 1; index < pts.length; index++) {
           expect(pts[index], greaterThan(pts[index - 1]));
