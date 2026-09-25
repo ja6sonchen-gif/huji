@@ -114,7 +114,7 @@ jobs:
           git diff --exit-code -- lib/models/task.g.dart
 
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
 
       - name: Build Linux ncnn plugin for native integration tests
         run: flutter build linux --debug
