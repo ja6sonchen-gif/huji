@@ -102,10 +102,6 @@ List<String> buildVideoEncodingArguments({
   String? scaleFilter,
 }) => [
   '-c:v', 'libx264',
-  // FFmpeg 4.4 (used by CI and some FFmpegKit builds) predates -fps_mode.
-  // Legacy vsync=0 is its compatible passthrough equivalent: preserve input
-  // frame timestamps without creating a fixed cadence.
-  '-vsync', '0',
   '-crf', crf,
   '-preset', preset,
   if (scaleFilter != null && scaleFilter.isNotEmpty) ...['-vf', scaleFilter],
@@ -113,6 +109,54 @@ List<String> buildVideoEncodingArguments({
   '-c:a', 'aac',
   '-b:a', '${audioBitrate}k',
 ];
+
+class FrameTimestampStrategy {
+  final List<String> arguments;
+  final String name;
+
+  const FrameTimestampStrategy(this.arguments, this.name);
+}
+
+/// Prefer the current per-stream switch, with its FFmpeg 4.4-era equivalent
+/// for older FFmpeg/FFmpegKit builds. Both preserve timestamps rather than
+/// forcing a fixed frame rate.
+FrameTimestampStrategy frameTimestampStrategyFromHelp(String helpOutput) {
+  if (helpOutput.contains('-fps_mode')) {
+    return const FrameTimestampStrategy(
+      ['-fps_mode', 'passthrough'],
+      'fps_mode=passthrough',
+    );
+  }
+  if (helpOutput.contains('-vsync')) {
+    return const FrameTimestampStrategy(['-vsync', '0'], 'vsync=0 passthrough');
+  }
+  throw StateError('FFmpeg does not expose a timestamp passthrough option.');
+}
+
+FrameTimestampStrategy? _cachedFrameTimestampStrategy;
+Future<FrameTimestampStrategy>? _pendingFrameTimestampStrategy;
+
+Future<FrameTimestampStrategy> _resolveFrameTimestampStrategy() {
+  final cached = _cachedFrameTimestampStrategy;
+  if (cached != null) return Future.value(cached);
+  return _pendingFrameTimestampStrategy ??= _probeFrameTimestampStrategy();
+}
+
+Future<FrameTimestampStrategy> _probeFrameTimestampStrategy() async {
+  try {
+    final help = await FFmpegRunner.instance.execute([
+      '-hide_banner', '-h', 'full',
+    ]);
+    if (!help.isSuccess) {
+      throw StateError(help.output ?? 'FFmpeg help probe failed.');
+    }
+    final strategy = frameTimestampStrategyFromHelp(help.output ?? '');
+    _cachedFrameTimestampStrategy = strategy;
+    return strategy;
+  } finally {
+    _pendingFrameTimestampStrategy = null;
+  }
+}
 
 /// Build one filter graph that trims all ranges from a single input, resets
 /// each range's timestamps, then joins them with continuous output PTS.
@@ -201,6 +245,7 @@ Future<String> runConcatVideoExport({
   }
 
   final stopwatch = Stopwatch()..start();
+  final timestampStrategy = await _resolveFrameTimestampStrategy();
   final sourceProbe = await _probeExportStreams(videoPath);
   if (sourceProbe == null) {
     throw StateError('Unable to probe source video streams.');
@@ -228,7 +273,7 @@ Future<String> runConcatVideoExport({
     'segmentCount=${segments.length}',
   );
   debugPrint(
-    '[VideoExport] outputCodec=libx264 fpsStrategy=passthrough(vsync=0) '
+    '[VideoExport] outputCodec=libx264 fpsStrategy=${timestampStrategy.name} '
     'preset=${preset ?? "medium"} crf=${crfOverride ?? defaultCrf} '
     'audioBitrate=${audioBitrate ?? 128}k '
     'pixFmt=${sourceColor.pixelFormat ?? "encoder-default"}',
@@ -245,6 +290,7 @@ Future<String> runConcatVideoExport({
     ),
     '-map', '[vout]',
     if (includeAudio) ...['-map', '[aout]'],
+    ...timestampStrategy.arguments,
     ...buildVideoEncodingArguments(
       sourceColor: sourceColor,
       crf: crfOverride?.toString() ?? defaultCrf,

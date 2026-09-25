@@ -103,6 +103,26 @@ void main() {
   });
 
   group('runConcatVideoExport', () {
+    test('chooses the available timestamp passthrough option by FFmpeg version', () {
+      expect(
+        frameTimestampStrategyFromHelp('  -fps_mode[:<stream_specifier>]'),
+        isA<FrameTimestampStrategy>()
+            .having((strategy) => strategy.arguments, 'arguments',
+                ['-fps_mode', 'passthrough'])
+            .having((strategy) => strategy.name, 'name', 'fps_mode=passthrough'),
+      );
+      expect(
+        frameTimestampStrategyFromHelp('  -vsync <int>'),
+        isA<FrameTimestampStrategy>()
+            .having((strategy) => strategy.arguments, 'arguments', ['-vsync', '0'])
+            .having((strategy) => strategy.name, 'name', 'vsync=0 passthrough'),
+      );
+      expect(
+        () => frameTimestampStrategyFromHelp('no passthrough option'),
+        throwsStateError,
+      );
+    });
+
     test('filter graph resets each segment PTS and joins video/audio in order', () {
       final filter = buildConcatFilterComplex(
         segments: [
@@ -147,7 +167,6 @@ void main() {
         audioBitrate: 128,
       );
       expect(args, containsAll([
-        '-vsync', '0',
         '-pix_fmt', 'yuv420p',
         '-color_range', 'tv',
         '-colorspace', 'bt709',
