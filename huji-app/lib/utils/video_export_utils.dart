@@ -114,6 +114,61 @@ List<String> buildVideoEncodingArguments({
   '-b:a', '${audioBitrate}k',
 ];
 
+/// Build one filter graph that trims all ranges from a single input, resets
+/// each range's timestamps, then joins them with continuous output PTS.
+String buildConcatFilterComplex({
+  required List<SegmentInfo> segments,
+  required bool includeAudio,
+  String? scaleFilter,
+}) {
+  if (segments.isEmpty) throw ArgumentError('No segments to concatenate.');
+
+  final filters = <String>[];
+  final concatInputs = <String>[];
+  final videoSources = List.generate(segments.length, (index) => '[vsrc$index]');
+  if (segments.length == 1) {
+    filters.add('[0:v:0]null${videoSources.single}');
+  } else {
+    filters.add('[0:v:0]split=${segments.length}${videoSources.join()}');
+  }
+  final audioSources = List.generate(segments.length, (index) => '[asrc$index]');
+  if (includeAudio) {
+    if (segments.length == 1) {
+      filters.add('[0:a:0]anull${audioSources.single}');
+    } else {
+      filters.add('[0:a:0]asplit=${segments.length}${audioSources.join()}');
+    }
+  }
+  for (var index = 0; index < segments.length; index++) {
+    final segment = segments[index];
+    filters.add(
+      '${videoSources[index]}trim=start=${segment.startSeconds}:end=${segment.endSeconds},'
+      'setpts=PTS-STARTPTS[v$index]',
+    );
+    concatInputs.add('[v$index]');
+    if (includeAudio) {
+      filters.add(
+        '${audioSources[index]}atrim=start=${segment.startSeconds}:end=${segment.endSeconds},'
+        'asetpts=PTS-STARTPTS[a$index]',
+      );
+      concatInputs.add('[a$index]');
+    }
+  }
+
+  final audioStreams = includeAudio ? 1 : 0;
+  filters.add(
+    '${concatInputs.join()}concat=n=${segments.length}:v=1:a=$audioStreams'
+    '[vcat]${includeAudio ? '[acat]' : ''}',
+  );
+  if (scaleFilter != null && scaleFilter.isNotEmpty) {
+    filters.add('[vcat]$scaleFilter[vout]');
+  } else {
+    filters.add('[vcat]null[vout]');
+  }
+  if (includeAudio) filters.add('[acat]anull[aout]');
+  return filters.join(';');
+}
+
 /// 导出画质档位 key（与导出配置页的档位一一对应）。
 abstract final class VideoExportQualities {
   static const original = 'original';
@@ -124,7 +179,8 @@ abstract final class VideoExportQualities {
 
 /// 把多个片段从同一源视频合成为单个 mp4。
 ///
-/// concat 清单 + 单次 x264 编码，`-progress pipe:1` 解析进度。
+/// 单次 filter_complex trim/concat + 单次 x264 编码，`-progress pipe:1`
+/// 解析进度。每段在 filter graph 内归零 PTS，再由 concat filter 生成连续时间轴。
 /// [onProgress] 只回传 0~1 的进度值，文案由调用方生成。
 /// [onProcessStarted] 在 ffmpeg 启动后回调（桌面子进程分支），调用方可
 /// 持有进程以实现取消。FFmpegKit 分支的取消走 [FFmpegRunner.cancel]。
@@ -146,20 +202,14 @@ Future<String> runConcatVideoExport({
 
   final stopwatch = Stopwatch()..start();
   final sourceProbe = await _probeExportStreams(videoPath);
+  if (sourceProbe == null) {
+    throw StateError('Unable to probe source video streams.');
+  }
   final sourceColor = VideoColorMetadata.fromProbeJson(sourceProbe);
+  final includeAudio = _hasAudioStream(sourceProbe);
   _logExportProbe('source', sourceProbe);
 
   await Directory(File(outputPath).parent.path).create(recursive: true);
-
-  final concatPath =
-      '${Directory.systemTemp.path}/huji_concat_${DateTime.now().millisecondsSinceEpoch}.txt';
-  final buf = StringBuffer();
-  for (final s in segments) {
-    buf.writeln("file '$videoPath'");
-    buf.writeln('inpoint ${s.startSeconds}');
-    buf.writeln('outpoint ${s.endSeconds}');
-  }
-  await File(concatPath).writeAsString(buf.toString());
 
   final (scale, defaultCrf) = switch (quality) {
     VideoExportQualities.original => ('', '18'),
@@ -186,13 +236,20 @@ Future<String> runConcatVideoExport({
   onProgress?.call(0);
 
   final commonArgs = [
-    '-f', 'concat', '-safe', '0', '-i', concatPath,
+    '-i', videoPath,
+    '-filter_complex',
+    buildConcatFilterComplex(
+      segments: segments,
+      includeAudio: includeAudio,
+      scaleFilter: scale.isEmpty ? null : scale,
+    ),
+    '-map', '[vout]',
+    if (includeAudio) ...['-map', '[aout]'],
     ...buildVideoEncodingArguments(
       sourceColor: sourceColor,
       crf: crfOverride?.toString() ?? defaultCrf,
       preset: preset ?? 'medium',
       audioBitrate: audioBitrate ?? 128,
-      scaleFilter: scale.isEmpty ? null : scale,
     ),
     '-movflags', '+faststart',
     '-y', outputPath,
@@ -213,7 +270,6 @@ Future<String> runConcatVideoExport({
               }
             : null,
       );
-      await File(concatPath).delete();
       if (!result.isSuccess && !result.isCancelled) {
         throw Exception(
           (result.output ?? '').trim().isEmpty
@@ -248,8 +304,6 @@ Future<String> runConcatVideoExport({
 
     final exitCode = await process.exitCode;
     await attached;
-    await File(concatPath).delete();
-
     if (exitCode != 0) {
       final stderr = await stderrFuture;
       throw Exception(
@@ -262,9 +316,6 @@ Future<String> runConcatVideoExport({
     onProgress?.call(1);
     return outputPath;
   } catch (e) {
-    try {
-      await File(concatPath).delete();
-    } catch (_) {}
     rethrow;
   } finally {
     stopwatch.stop();
@@ -275,6 +326,13 @@ Future<String> runConcatVideoExport({
       'segmentCount=${segments.length}',
     );
   }
+}
+
+bool _hasAudioStream(String probeOutput) {
+  final json = jsonDecode(probeOutput) as Map<String, dynamic>;
+  final streams = json['streams'] as List<dynamic>? ?? const [];
+  return streams.any((stream) =>
+      (stream as Map<String, dynamic>)['codec_type'] == 'audio');
 }
 
 Future<String?> _probeExportStreams(String videoPath) async {

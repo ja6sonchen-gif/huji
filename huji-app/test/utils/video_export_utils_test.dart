@@ -103,6 +103,36 @@ void main() {
   });
 
   group('runConcatVideoExport', () {
+    test('filter graph resets each segment PTS and joins video/audio in order', () {
+      final filter = buildConcatFilterComplex(
+        segments: [
+          SegmentInfo(actionType: ActionType.playBall, startSeconds: 1, endSeconds: 2),
+          SegmentInfo(actionType: ActionType.playBall, startSeconds: 4, endSeconds: 5.5),
+        ],
+        includeAudio: true,
+      );
+
+      expect(filter, contains('trim=start=1.0:end=2.0,setpts=PTS-STARTPTS[v0]'));
+      expect(filter, contains('atrim=start=4.0:end=5.5,asetpts=PTS-STARTPTS[a1]'));
+      expect(filter, contains('concat=n=2:v=1:a=1[vcat][acat]'));
+      expect(filter, contains('[vcat]null[vout]'));
+      expect(filter, contains('[acat]anull[aout]'));
+    });
+
+    test('filter graph supports source clips without an audio stream', () {
+      final filter = buildConcatFilterComplex(
+        segments: [
+          SegmentInfo(actionType: ActionType.playBall, startSeconds: 0, endSeconds: 1),
+        ],
+        includeAudio: false,
+        scaleFilter: 'scale=-2:720',
+      );
+
+      expect(filter, contains('concat=n=1:v=1:a=0[vcat]'));
+      expect(filter, contains('[vcat]scale=-2:720[vout]'));
+      expect(filter, isNot(contains('atrim=')));
+    });
+
     test('preserves known source color metadata without color filters', () {
       final metadata = VideoColorMetadata.fromProbeJson(
         '{"streams":[{"color_range":"tv","color_space":"bt709",'
