@@ -533,10 +533,12 @@ class DownloadTask extends Task {
 }
 
 @JsonSerializable()
-class VideoSegmentDetectTask extends Task {  final String videoPath;
+class VideoSegmentDetectTask extends Task {
+  final String videoPath;
   @JsonKey(fromJson: videoClipConfigFromDeserialize)
   final VideoClipConfigReqVo? clipConfig;
   final SportType? sportType;
+  final MatchType matchType;
   String? edittingRecordId;
   // 如果没有streamId, 那就是非实时模式
   String? frameStreamId;
@@ -558,10 +560,13 @@ class VideoSegmentDetectTask extends Task {  final String videoPath;
     required this.videoPath,
     this.clipConfig,
     this.sportType,
+    MatchType? matchType,
     this.edittingRecordId,
     this.frameStreamId,
     this.detectedTime = 0.0,
-  }) : super(
+  }) : matchType =
+           matchType ?? clipConfig?.matchType ?? MatchType.singlesMatch,
+       super(
          type: TaskTypeEnum.videoSegmentDetect, // 使用视频剪辑类型
          name: name ?? '视频片段检测',
        );
@@ -591,6 +596,7 @@ class VideoSegmentDetectTask extends Task {  final String videoPath;
     bool? hide,
     VideoClipConfigReqVo? clipConfig,
     SportType? sportType,
+    MatchType? matchType,
     String? edittingRecordId,
     String? frameStreamId,
     double? detectedTime,
@@ -604,6 +610,7 @@ class VideoSegmentDetectTask extends Task {  final String videoPath;
       videoPath: videoPath,
       clipConfig: clipConfig ?? this.clipConfig,
       sportType: sportType ?? this.sportType,
+      matchType: matchType ?? this.matchType,
       edittingRecordId: edittingRecordId ?? this.edittingRecordId,
       frameStreamId: frameStreamId ?? this.frameStreamId,
       detectedTime: detectedTime ?? this.detectedTime,

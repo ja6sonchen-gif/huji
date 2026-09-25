@@ -2180,6 +2180,15 @@ class HujiLocalizationsEn extends HujiLocalizations {
   String get officialWebsite => 'Official website';
 
   @override
+  String get offlineBadmintonDoubles => 'Badminton doubles';
+
+  @override
+  String get offlineBadmintonSingles => 'Badminton singles';
+
+  @override
+  String get offlineBadmintonStartAnalysis => 'Start analysis';
+
+  @override
   String openBrowserFailed(String error) {
     return 'Failed to open browser: $error';
   }

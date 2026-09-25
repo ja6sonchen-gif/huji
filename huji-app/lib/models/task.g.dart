@@ -304,6 +304,7 @@ VideoSegmentDetectTask _$VideoSegmentDetectTaskFromJson(
         videoPath: json['videoPath'] as String,
         clipConfig: videoClipConfigFromDeserialize(json['clipConfig']),
         sportType: $enumDecodeNullable(_$SportTypeEnumMap, json['sportType']),
+        matchType: $enumDecodeNullable(_$MatchTypeEnumMap, json['matchType']),
         edittingRecordId: json['edittingRecordId'] as String?,
         frameStreamId: json['frameStreamId'] as String?,
         detectedTime: (json['detectedTime'] as num?)?.toDouble() ?? 0.0,
@@ -330,9 +331,15 @@ Map<String, dynamic> _$VideoSegmentDetectTaskToJson(
   'videoPath': instance.videoPath,
   'clipConfig': instance.clipConfig,
   'sportType': _$SportTypeEnumMap[instance.sportType],
+  'matchType': _$MatchTypeEnumMap[instance.matchType]!,
   'edittingRecordId': instance.edittingRecordId,
   'frameStreamId': instance.frameStreamId,
   'detectedTime': instance.detectedTime,
+};
+
+const _$MatchTypeEnumMap = {
+  MatchType.doublesMatch: 0,
+  MatchType.singlesMatch: 1,
 };
 
 VideoExportTask _$VideoExportTaskFromJson(Map<String, dynamic> json) =>

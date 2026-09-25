@@ -57,11 +57,14 @@ Future<RawVideoRecord> createRawVideoRecord(
   return rawRecord;
 }
 
-VideoClipConfigReqVo getDefaultConfig(SportType sportType) {
+VideoClipConfigReqVo getDefaultConfig(
+  SportType sportType, {
+  MatchType matchType = MatchType.singlesMatch,
+}) {
   if (sportType == SportType.pingpong) {
     return PingPongVideoClipConfigReqVo(
       mode: ModeEnum.backendClip,
-      matchType: MatchType.singlesMatch,
+      matchType: matchType,
       greatBallEditing: true,
       removeReplay: true,
       getMatchSegments: true,
@@ -75,7 +78,7 @@ VideoClipConfigReqVo getDefaultConfig(SportType sportType) {
   } else {
     return BadmintonVideoClipConfigReqVo(
       mode: ModeEnum.backendClip,
-      matchType: MatchType.singlesMatch,
+      matchType: matchType,
       greatBallEditing: true,
       removeReplay: true,
       getMatchSegments: true,

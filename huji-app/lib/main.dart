@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:media_kit/media_kit.dart' as media_kit;
 import 'package:huji_app/appearance/appearance_cubit.dart';
 import 'package:huji_app/models/autoclip_models.dart';
+import 'package:huji_app/config/product_mode.dart';
 import 'package:huji_app/appearance/appearance_preferences.dart';
 import 'package:huji_app/appearance/appearance_theme_bundle.dart';
 import 'package:huji_app/init.dart';
@@ -44,6 +45,9 @@ void main(List<String> args) async {
   try {
     // 必须先初始化 Flutter 绑定，才能使用平台通道（如 path_provider）
     WidgetsFlutterBinding.ensureInitialized();
+    if (ProductModeConfig.isOfflineBadminton) {
+      GoogleFonts.config.allowRuntimeFetching = false;
+    }
     // Hidden self-test: run the full ncnn inference sequence in the real app
     // process and exit — used by CI/scripts to validate the native stack
     // without driving the UI (`huji.exe --ncnn-selftest`).

@@ -31,6 +31,14 @@ class FeatureVisibility extends ChangeNotifier {
 
   bool get galleryAvailable => PlatformCapability.supportsGalleryAccess;
 
+  void configureOffline() {
+    _enableCloudClip = false;
+    _showSubscriptionPage = false;
+    _showAdPage = false;
+    _loaded = true;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     try {
       final results = await Future.wait<bool>([

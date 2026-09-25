@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 
+import 'package:huji_app/api/models/autoclip/clip_models.dart';
+import 'package:huji_app/api/models/autoclip/video_models.dart';
 import 'package:huji_app/services/inference/inference_spec.dart';
 import 'package:huji_app/services/inference/inference_model_registry.dart';
 
@@ -16,6 +18,40 @@ class NcnnModelAssetResolver {
   static Directory get _cacheDir => Directory(
         path.join(Directory.systemTemp.path, 'ncnn_models'),
       );
+
+  static ({String sportType, String matchType}) modelKeysForTask({
+    required SportType sportType,
+    required MatchType matchType,
+  }) {
+    if (sportType == SportType.badminton) {
+      return (
+        sportType: 'badminton',
+        matchType: matchType == MatchType.doublesMatch
+            ? 'doubles'
+            : 'singles',
+      );
+    }
+    return (sportType: 'ping_pong', matchType: 'profession');
+  }
+
+  static Map<String, String> assetKeysForTask({
+    required SportType sportType,
+    required MatchType matchType,
+  }) {
+    final keys = modelKeysForTask(sportType: sportType, matchType: matchType);
+    return InferenceModelRegistry.ncnnAssetKeysFor(
+      keys.sportType,
+      keys.matchType,
+    );
+  }
+
+  static Future<InferenceSpec> resolveForTask({
+    required SportType sportType,
+    required MatchType matchType,
+  }) {
+    final keys = modelKeysForTask(sportType: sportType, matchType: matchType);
+    return resolve(sportType: keys.sportType, matchType: keys.matchType);
+  }
 
   /// Resolve sport/match to cached ncnn files plus fallback class names.
   static Future<InferenceSpec> resolve({

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit_config.dart';
 import 'package:huji_app/config/environment.dart';
+import 'package:huji_app/config/product_mode.dart';
 import 'package:huji_app/constants/theme_manager.dart';
 import 'package:huji_app/services/app_update_checker.dart';
 import 'package:huji_app/services/error_log_service.dart';
@@ -88,27 +89,32 @@ Future<void> preInit() async {
 
 /// Will be called when home page has been initialized
 Future<void> postInit() async {
-  if (Platform.isAndroid || Platform.isIOS) {
-    await PermissionService().initialize();
-  }
+  final offlineBadminton = ProductModeConfig.isOfflineBadminton;
 
-  AppLogger.instance.i('PermissionService initialized');
+  if ((Platform.isAndroid || Platform.isIOS) && !offlineBadminton) {
+    await PermissionService().initialize();
+    AppLogger.instance.i('PermissionService initialized');
+  } else if (offlineBadminton) {
+    AppLogger.instance.i('PermissionService skipped for offline badminton');
+  }
   if (Platform.isAndroid || Platform.isIOS) {
     NotificationManager.instance.initialize();
   }
 
   AppLogger.instance.i('NotificationManager initialized');
 
-  // 初始化认证服务
-  await UserStore.initialize();
+  if (!offlineBadminton) {
+    // 初始化认证服务
+    await UserStore.initialize();
 
-  AppLogger.instance.i('UserStore initialized');
+    AppLogger.instance.i('UserStore initialized');
 
-  // 初始化用户 Bloc（在 UserStore 初始化后）
-  // UserBloc 会在创建时自动加载初始状态
-  UserBlocInstance.instance; // 触发实例创建
+    // 初始化用户 Bloc（在 UserStore 初始化后）
+    // UserBloc 会在创建时自动加载初始状态
+    UserBlocInstance.instance; // 触发实例创建
 
-  AppLogger.instance.i('UserBloc initialized');
+    AppLogger.instance.i('UserBloc initialized');
+  }
 
   // 初始化数据库
   // await LocalVideoStorage().resetDatabase();
@@ -121,10 +127,12 @@ Future<void> postInit() async {
   // 历史版本把缩略图写入系统临时目录会被 OS 清理，启动后异步补生成
   unawaited(LocalVideoStorage().repairMissingThumbnails());
 
-  // 初始化消息状态管理器
-  Get.put(MessageStore(), permanent: true);
+  if (!offlineBadminton) {
+    // 初始化消息状态管理器
+    Get.put(MessageStore(), permanent: true);
 
-  AppLogger.instance.i('MessageStore initialized');
+    AppLogger.instance.i('MessageStore initialized');
+  }
 
   // 初始化主题管理器
   Get.put(ThemeManager(), permanent: true);
@@ -141,12 +149,16 @@ Future<void> postInit() async {
 
   AppLogger.instance.i('StorageManager initialized');
 
-  // 启动应用更新检查
-  AppUpdateChecker.instance.startAutoCheck();
+  if (offlineBadminton) {
+    FeatureVisibility.instance.configureOffline();
+  } else {
+    // 启动应用更新检查
+    AppUpdateChecker.instance.startAutoCheck();
 
-  AppLogger.instance.i('AppUpdateChecker initialized');
+    AppLogger.instance.i('AppUpdateChecker initialized');
 
-  await FeatureVisibility.instance.load();
+    await FeatureVisibility.instance.load();
+  }
 
   AppLogger.instance.i('FeatureVisibility initialized');
 }

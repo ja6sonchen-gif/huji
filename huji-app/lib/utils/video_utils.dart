@@ -1355,7 +1355,7 @@ class VideoUtils {
     );
 
     final args = <String>['-loglevel', logLevel];
-    if (startTime != null && startTime > 0) {
+    if (startTime != null && startTime >= 0) {
       args.addAll(['-ss', startTime.toString()]);
     }
     args.addAll(['-i', videoPath]);
@@ -1377,11 +1377,61 @@ class VideoUtils {
 
     final result = await FFmpegRunner.instance.execute(args);
 
+    if (result.isCancelled) {
+      throw OperationCancelledException();
+    }
     if (!result.isSuccess) {
       throw Exception(
         resolveHujiL10n().frameExtractionFailed(result.output ?? ''),
       );
     }
+  }
+
+  /// Extracts one bounded RGB24 chunk and returns its numbered frame paths.
+  ///
+  /// The caller owns [tempDir] and must delete it after every returned frame
+  /// has been consumed. No source-video copy is created.
+  static Future<List<String>> extractRawRgbFrameChunk({
+    required String videoPath,
+    required int framesPerSecond,
+    required Directory tempDir,
+    required double startSeconds,
+    required double durationSeconds,
+    int width = ImagePreprocessor.inputSize,
+    int height = ImagePreprocessor.inputSize,
+  }) async {
+    if (startSeconds < 0) {
+      throw ArgumentError.value(
+        startSeconds,
+        'startSeconds',
+        'must not be negative',
+      );
+    }
+    if (durationSeconds <= 0) {
+      throw ArgumentError.value(
+        durationSeconds,
+        'durationSeconds',
+        'must be positive',
+      );
+    }
+    await intervalExtractRawRgbFrames(
+      videoPath: videoPath,
+      frameInterval: framesPerSecond,
+      tempDir: tempDir.path,
+      startTime: startSeconds,
+      duration: durationSeconds,
+      width: width,
+      height: height,
+    );
+
+    final frames = <String>[];
+    await for (final entity in tempDir.list()) {
+      if (entity is File && entity.path.endsWith('.rgb')) {
+        frames.add(entity.path);
+      }
+    }
+    frames.sort((a, b) => path.basename(a).compareTo(path.basename(b)));
+    return frames;
   }
 
   /// Stream classify-cropped RGB24 frames from ffmpeg stdout (no temp files).

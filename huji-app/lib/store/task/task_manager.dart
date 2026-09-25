@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:huji_app/utils/logger_utils.dart';
+import 'package:huji_app/config/product_mode.dart';
 import 'package:path/path.dart';
 import 'package:huji_app/constants/global.dart';
 import 'package:huji_app/services/notification/notification_manager.dart';
@@ -106,7 +107,7 @@ class TaskStorage extends ChangeNotifier
 
   static Database? _database;
   static const String mainTable = 'tasks';
-  static const _currentDatabaseVersion = 10;
+  static const _currentDatabaseVersion = 11;
 
   final List<Task> _tasks = [];
 
@@ -186,7 +187,9 @@ class TaskStorage extends ChangeNotifier
     }
 
     // 初始化遥测服务（异步，不阻塞）
-    TelemetryService.instance.initialize();
+    if (!ProductModeConfig.isOfflineBadminton) {
+      TelemetryService.instance.initialize();
+    }
   }
 
   @override
@@ -521,7 +524,9 @@ class TaskStorage extends ChangeNotifier
       _notifyListenersInternal(updatedTask);
 
       // 记录遥测数据
-      _recordTelemetryIfNeeded(oldTask, updatedTask, oldStatus, oldCreatedAt);
+      if (!ProductModeConfig.isOfflineBadminton) {
+        _recordTelemetryIfNeeded(oldTask, updatedTask, oldStatus, oldCreatedAt);
+      }
 
       return updatedTask;
     });
@@ -759,8 +764,9 @@ class TaskStorage extends ChangeNotifier
       notifyListeners();
     });
 
-    // 初始化遥测服务
-    TelemetryService.instance.initialize();
+    if (!ProductModeConfig.isOfflineBadminton) {
+      TelemetryService.instance.initialize();
+    }
   }
 
   @override

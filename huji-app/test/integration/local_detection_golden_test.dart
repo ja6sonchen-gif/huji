@@ -6,11 +6,19 @@ import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:huji_app/api/models/autoclip/clip_models.dart';
+import 'package:huji_app/core/realtime/badminton_realtime_action_segment_detector.dart';
+import 'package:huji_app/models/autoclip_models.dart';
+import 'package:huji_app/services/inference/image_preprocessor.dart';
 import 'package:huji_app/services/inference/ncnn_model_asset_resolver.dart';
+import 'package:huji_app/services/inference/ncnn_model_predictor.dart';
+import 'package:huji_app/services/large_model_service.dart';
 import 'package:huji_app/services/local_detection_service.dart';
 import 'package:huji_app/services/platform_capability.dart';
 import 'package:huji_app/services/storage_service.dart';
+import 'package:huji_app/utils/video_frame_chunk_pipeline.dart';
+import 'package:huji_app/utils/video_utils.dart';
 import 'package:ncnn/ncnn.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 import '../helpers/autoclip_fixtures.dart';
@@ -31,6 +39,96 @@ Future<bool> _ncnnPluginAvailable(String sportType, String matchType) async {
     return true;
   } catch (_) {
     return false;
+  }
+}
+
+Future<List<SegmentInfo>> _runBadmintonRealtimeFixture({
+  required String videoPath,
+  required double durationSeconds,
+  required bool chunked,
+}) async {
+  final spec = await NcnnModelAssetResolver.resolve(
+    sportType: 'badminton',
+    matchType: 'singles',
+  );
+  final predictor = NcnnModelPredictor(
+    paramFilePath: spec.paramFilePath,
+    binFilePath: spec.binFilePath,
+    fallbackClassNames: spec.classNames,
+  );
+  final detector = BadmintonRealtimeActionSegmentDetector(
+    config: algorithmBadmintonConfig(),
+    segmentDetectConfig: defaultBadmintonSegmentDetectConfig,
+    largeModelService: LargeModelService(),
+    modelPredictor: predictor,
+  );
+  final tempDirectory = await Directory.systemTemp.createTemp(
+    chunked ? 'badminton_chunked_' : 'badminton_unchunked_',
+  );
+
+  try {
+    await detector.start();
+    if (chunked) {
+      const pipeline = VideoFrameChunkPipeline(
+        chunkDurationSeconds: 30,
+        framesPerSecond: 6,
+      );
+      final completed = await pipeline.process(
+        videoDurationSeconds: durationSeconds,
+        taskDirectory: tempDirectory,
+        extractChunk: (chunk, directory) {
+          return VideoUtils.extractRawRgbFrameChunk(
+            videoPath: videoPath,
+            framesPerSecond: 6,
+            tempDir: directory,
+            startSeconds: chunk.startSeconds,
+            durationSeconds: chunk.durationSeconds,
+            width: ImagePreprocessor.inputSize,
+            height: ImagePreprocessor.inputSize,
+          );
+        },
+        consumeFrame: (frame) {
+          return detector.addRgb24Prediction(
+            frame.filePath,
+            frame.timestampSeconds,
+          );
+        },
+      );
+      expect(completed, isTrue);
+    } else {
+      await VideoUtils.intervalExtractRawRgbFrames(
+        videoPath: videoPath,
+        frameInterval: 6,
+        tempDir: tempDirectory.path,
+        startTime: 0,
+        duration: durationSeconds,
+        width: ImagePreprocessor.inputSize,
+        height: ImagePreprocessor.inputSize,
+      );
+      final frames = tempDirectory
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.rgb'))
+          .toList()
+        ..sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
+      for (var frameIndex = 0; frameIndex < frames.length; frameIndex++) {
+        final frame = frames[frameIndex];
+        await detector.addRgb24Prediction(frame.path, frameIndex / 6);
+        await frame.delete();
+      }
+    }
+
+    await detector.stop();
+    return detector.detectedSegments.toList();
+  } finally {
+    if (detector.isRunning) {
+      await detector.stop(force: true);
+    }
+    await detector.dispose();
+    await predictor.dispose();
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
   }
 }
 
@@ -358,4 +456,49 @@ void main() {
       );
     });
   }
+
+  test(
+    '30 second chunking matches unchunked badminton fixture detection',
+    () async {
+      if (!PlatformCapability.isDesktop) return;
+      if (!await _ncnnPluginAvailable('badminton', 'singles')) {
+        markTestSkipped('ncnn native plugin not available in test VM');
+        return;
+      }
+
+      final appRoot = findAppRoot();
+      final videoPath = resolveFixtureFile(
+        badmintonTestVideoRel,
+        appRoot: appRoot,
+      ).path;
+      final duration = (await VideoUtils.getVideoBaseInfo(videoPath)).duration;
+      final unchunked = await _runBadmintonRealtimeFixture(
+        videoPath: videoPath,
+        durationSeconds: duration,
+        chunked: false,
+      );
+      final chunked = await _runBadmintonRealtimeFixture(
+        videoPath: videoPath,
+        durationSeconds: duration,
+        chunked: true,
+      );
+
+      expect(unchunked, isNotEmpty);
+      expect(chunked, hasLength(unchunked.length));
+      for (var index = 0; index < unchunked.length; index++) {
+        expect(chunked[index].actionType, unchunked[index].actionType);
+        expect(
+          chunked[index].startSeconds,
+          closeTo(unchunked[index].startSeconds, 1 / 6),
+          reason: 'segment $index start differs by more than one sample',
+        );
+        expect(
+          chunked[index].endSeconds,
+          closeTo(unchunked[index].endSeconds, 1 / 6),
+          reason: 'segment $index end differs by more than one sample',
+        );
+      }
+    },
+    timeout: const Timeout(Duration(minutes: 20)),
+  );
 }

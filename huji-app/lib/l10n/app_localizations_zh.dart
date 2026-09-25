@@ -2123,6 +2123,15 @@ class HujiLocalizationsZh extends HujiLocalizations {
   String get officialWebsite => '官方网站';
 
   @override
+  String get offlineBadmintonDoubles => '羽毛球双打';
+
+  @override
+  String get offlineBadmintonSingles => '羽毛球单打';
+
+  @override
+  String get offlineBadmintonStartAnalysis => '开始分析';
+
+  @override
   String openBrowserFailed(String error) {
     return '打开浏览器失败: $error';
   }

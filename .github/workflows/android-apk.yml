@@ -1,0 +1,161 @@
+name: Android Debug APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: huji-app
+
+jobs:
+  verify-and-build:
+    name: Verify Flutter and build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Verify recursive submodule checkout
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule status --recursive
+          if git submodule status --recursive | grep -Eq '^[+-U]'; then
+            echo "A recursive submodule is uninitialized or does not match its recorded commit." >&2
+            exit 1
+          fi
+          for submodule in \
+            huji-algorithm \
+            huji-app/packages/shared_ui \
+            huji-app/packages/ncnn; do
+            test -e "$submodule/.git" || {
+              echo "Missing checked-out submodule: $submodule" >&2
+              exit 1
+            }
+          done
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+          cache: true
+
+      - name: Show Flutter version
+        run: flutter --version
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          flutter_ndk_version="$(grep -rhoE 'ndkVersion: String = "[0-9.]+"' \
+            "$(dirname "$(readlink -f "$(command -v flutter)")")/../packages/flutter_tools/gradle/" \
+            | head -1 | grep -oE '[0-9.]+')"
+          if [ -z "$flutter_ndk_version" ]; then
+            echo "Could not read the pinned Flutter NDK version." >&2
+            exit 1
+          fi
+          echo "Installing Android SDK platforms 34 and 36, CMake 3.22.1, ncnn NDK 27.0.12077973, and Flutter NDK ${flutter_ndk_version}."
+          "$sdkmanager" \
+            "platforms;android-34" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "cmake;3.22.1" \
+            "ndk;27.0.12077973" \
+            "ndk;${flutter_ndk_version}"
+
+      - name: Accept Android SDK licenses
+        run: yes | flutter doctor --android-licenses
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Install Linux dependencies for ncnn integration tests
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config ffmpeg \
+            libgtk-3-dev liblzma-dev libsecret-1-dev \
+            libjsoncpp-dev libstdc++-12-dev \
+            libasound2-dev libmpv-dev mpv \
+            libjson-glib-dev
+
+      - name: Resolve Flutter packages
+        run: flutter pub get
+
+      - name: Regenerate and verify task JSON code
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          git diff --exit-code -- lib/models/task.g.dart
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build Linux ncnn plugin for native integration tests
+        run: flutter build linux --debug
+
+      - name: Product mode test
+        run: flutter test test/config/product_mode_test.dart
+
+      - name: Offline badminton routes test
+        run: flutter test test/router/offline_badminton_routes_test.dart
+
+      - name: Offline badminton home page test
+        run: flutter test test/pages/offline_badminton/offline_badminton_home_page_test.dart
+
+      - name: Task match type persistence test
+        run: flutter test test/models/video_segment_detect_task_match_type_test.dart
+
+      - name: NCNN model resolver match type test
+        run: flutter test test/services/inference/ncnn_model_asset_resolver_match_type_test.dart
+
+      - name: RGB24 chunk pipeline test
+        run: flutter test test/utils/video_frame_chunk_pipeline_test.dart
+
+      - name: FFmpeg RGB24 chunk extraction test
+        run: flutter test test/utils/video_utils_rgb_chunk_test.dart
+
+      - name: Badminton chunk boundary continuity test
+        run: flutter test test/core/realtime/badminton_chunk_boundary_continuity_test.dart
+
+      - name: Local detection Golden regression test
+        run: flutter test test/integration/local_detection_golden_test.dart
+
+      - name: Full Flutter test suite
+        run: flutter test
+
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+
+      - name: Upload Android debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: huji-offline-badminton-debug-apk
+          path: huji-app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -10,27 +10,32 @@ import 'package:huji_app/core/realtime/realtime_action_segment_detector.dart';
 import 'package:huji_app/models/autoclip_models.dart';
 import 'package:huji_app/models/task.dart';
 import 'package:huji_app/models/video.dart';
+import 'package:huji_app/services/ffmpeg/ffmpeg_runner.dart';
 import 'package:huji_app/services/large_model_service.dart';
 import 'package:huji_app/services/memory_stream_service.dart';
-import 'package:huji_app/services/inference/ncnn_model_predictor.dart';
 import 'package:huji_app/services/inference/image_preprocessor.dart';
 import 'package:huji_app/services/inference/ncnn_model_asset_resolver.dart';
+import 'package:huji_app/services/inference/ncnn_model_predictor.dart';
 import 'package:huji_app/services/storage_service.dart';
 import 'package:huji_app/store/task/task_manager.dart';
 import 'package:huji_app/store/video.dart';
 import 'package:huji_app/utils/clip_config_codec.dart';
 import 'package:huji_app/utils/debounce/throttles.dart';
 import 'package:huji_app/utils/logger_utils.dart';
+import 'package:huji_app/utils/video_frame_chunk_pipeline.dart';
 import 'package:huji_app/utils/video_utils.dart';
 
 class VideoSegmentDetectTaskManager extends AbstractTaskManager {
   static const String videoSegmentDetectTable = 'video_segment_detect_tasks';
+  static const int _fileFramesPerSecond = 6;
+  static const double _fileChunkDurationSeconds = 30;
   final TaskStorage _taskStorage;
   RealtimeActionSegmentDetector? _actionSegmentDetector;
   ModelPredictor? _inferencePredictor;
   final LargeModelService _largeModelService = LargeModelService();
   StreamSubscription<Tuple<double, String>?>? _frameStreamSubscription;
   final Map<String, Completer<void>> _taskCompleters = {};
+  final Set<String> _cancelRequestedTaskIds = {};
   // 用于节流进度更新的 Throttler 映射，key 为任务 ID
   final Map<String, Throttler> _progressThrottlers = {};
 
@@ -56,45 +61,20 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
 
   @override
   Future<void> processTask(Task task) async {
-    VideoSegmentDetectTask currentTask = task as VideoSegmentDetectTask;
-    Stream<Tuple<double, String>?> frameStream;
+    final currentTask = task as VideoSegmentDetectTask;
+    _cancelRequestedTaskIds.remove(currentTask.id);
+    Stream<Tuple<double, String>?>? frameStream;
     if (currentTask.frameStreamId != null) {
       frameStream =
           await MemoryStreamService().getStream(currentTask.frameStreamId!)
               as Stream<Tuple<double, String>?>;
-    } else {
-      frameStream = await getStream(currentTask.videoPath);
     }
     await _startTask(currentTask, frameStream);
   }
 
-  Future<Stream<Tuple<double, String>?>> getStream(String videoPath) async {
-    final tempDir = await storage.createTempInCleanupDirectory(
-      prefix: 'batch_frames_',
-    );
-
-    double currentTime = 0;
-    // 直接抽 classify 中心裁剪到模型输入尺寸的 RGB24 裸帧：缩放/裁剪由 FFmpeg 完成，
-    // 预测侧免掉 Dart PNG 解码（纯 Dart image 包解码每帧要数百毫秒）。
-    final frameSize = ImagePreprocessor.inputSize;
-    final thumbnailsStream =
-        (await VideoUtils.generateThumbnails(
-          videoPath,
-          6,
-          dirPath: tempDir.path,
-          letterboxSize: frameSize,
-        )).map((e) {
-          currentTime += 1 / 6.0;
-          // 直接返回文件路径，而不是读取字节
-          return Tuple(item1: currentTime, item2: e);
-        });
-    AppLogger().i('抽帧流创建: 视频路径=$videoPath, 临时目录=${tempDir.path}');
-    return thumbnailsStream;
-  }
-
   Future<void> _startTask(
     VideoSegmentDetectTask task,
-    Stream<Tuple<double, String>?> frameStream,
+    Stream<Tuple<double, String>?>? frameStream,
   ) async {
     VideoSegmentDetectTask currentTask = task.copyWith(supportsPause: false);
 
@@ -111,101 +91,62 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
       // 开始实时检测
       await _startRealtimeDetection(currentTask, frameStream);
 
-      currentTask =
-          await _taskStorage.updateTask(
+      if (!_isTaskCancelled(task.id)) {
+        currentTask =
+            await _taskStorage.updateTask(
                 task.id,
                 (oldTask) => (oldTask as VideoSegmentDetectTask).copyWith(
                   status: TaskStatusEnum.completed,
                   progress: 1.0,
                 ),
               )
-              as VideoSegmentDetectTask;
+                as VideoSegmentDetectTask;
+      }
     } catch (e, stackTrace) {
       AppLogger().e('Error processing task: $e', stackTrace, e);
-
-      currentTask =
-          await _taskStorage.updateTask(
+      if (!_isTaskCancelled(task.id)) {
+        currentTask =
+            await _taskStorage.updateTask(
                 task.id,
                 (oldTask) => (oldTask as VideoSegmentDetectTask).copyWith(
                   status: TaskStatusEnum.failed,
                   extraInfo: e.toString(),
                 ),
               )
-              as VideoSegmentDetectTask;
+                as VideoSegmentDetectTask;
+      }
+    } finally {
+      _cancelRequestedTaskIds.remove(task.id);
     }
+  }
+
+  bool _isTaskCancelled(String taskId) {
+    if (_cancelRequestedTaskIds.contains(taskId)) return true;
+    final task = _taskStorage.getTaskById(taskId);
+    return task == null || task.status == TaskStatusEnum.cancelled;
   }
 
   // 开始实时检测
   Future<void> _startRealtimeDetection(
     VideoSegmentDetectTask task,
-    Stream<Tuple<double, String>?> frameStream,
+    Stream<Tuple<double, String>?>? frameStream,
   ) async {
-    final completer = Completer<void>();
-    _taskCompleters[task.id] = completer;
-
     try {
       await _initializeRealtimeDetector(task);
-
-      // 使用 listen 而不是 await for，以便可以取消订阅
       _receivedFrames = 0;
       _lastFrameHeartbeat = null;
-      _frameStreamSubscription = frameStream.listen(
-        (frame) async {
-          if (frame == null) {
-            return;
-          }
-          _maybeLogFrameHeartbeat(frame);
-          // 检查任务是否已被取消
-          final currentTask =
-              _taskStorage.getTaskById(task.id) as VideoSegmentDetectTask?;
-          if (currentTask == null ||
-              currentTask.status == TaskStatusEnum.cancelled) {
-            _frameStreamSubscription?.cancel();
-            if (!completer.isCompleted) {
-              completer.complete();
-            }
-            return;
-          }
-          // 文件抽帧流是 FFmpeg 输出的 RGB24 裸帧；相机实时流是 JPEG 文件
-          if (task.frameStreamId == null) {
-            await _actionSegmentDetector?.addRgb24Prediction(
-              frame.item2,
-              frame.item1.toDouble(),
-            );
-          } else {
-            await _actionSegmentDetector?.addPrediction(
-              frame.item2,
-              frame.item1.toDouble(),
-            );
-          }
-        },
-        onError: (error) {
-          AppLogger().e(
-            'Frame stream error: $error',
-            StackTrace.current,
-            error,
-          );
-          if (!completer.isCompleted) {
-            completer.completeError(error);
-          }
-        },
-        onDone: () {
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-        },
-        cancelOnError: false,
-      );
 
-      // 等待流完成或被取消
-      await completer.future;
+      final completed = task.frameStreamId == null
+          ? await _processFileVideoInChunks(task)
+          : await _consumeRealtimeFrameStream(task, frameStream!);
+
+      if (!completed || _isTaskCancelled(task.id)) {
+        await _stopRealtimeDetector(force: true);
+        return;
+      }
 
       // 停止检测器
       await _stopRealtimeDetector();
-
-      // 清理该任务的进度更新节流器
-      _progressThrottlers[task.id]?.dispose();
-      _progressThrottlers.remove(task.id);
 
       final edittingRecordId = task.edittingRecordId!;
       final record = await LocalVideoStorage().findById(edittingRecordId);
@@ -250,31 +191,104 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
       );
     } catch (e, stackTrace) {
       AppLogger().e('Error in realtime detection: $e', stackTrace, e);
-      await _stopRealtimeDetector();
-      if (!completer.isCompleted) {
-        completer.completeError(e);
-      }
+      await _stopRealtimeDetector(force: _isTaskCancelled(task.id));
       rethrow;
     } finally {
       _taskCompleters.remove(task.id);
       _frameStreamSubscription = null;
+      _progressThrottlers[task.id]?.dispose();
+      _progressThrottlers.remove(task.id);
     }
+  }
+
+  Future<bool> _processFileVideoInChunks(
+    VideoSegmentDetectTask task,
+  ) async {
+    final durationSeconds = task.total != null
+        ? task.total! / 1000.0
+        : (await VideoUtils.getVideoBaseInfo(task.videoPath)).duration;
+    final taskDirectory = await storage.createTempInCleanupDirectory(
+      prefix: 'detect_${task.id}_',
+    );
+    const pipeline = VideoFrameChunkPipeline(
+      chunkDurationSeconds: _fileChunkDurationSeconds,
+      framesPerSecond: _fileFramesPerSecond,
+    );
+
+    return pipeline.process(
+      videoDurationSeconds: durationSeconds,
+      taskDirectory: taskDirectory,
+      isCancelled: () => _isTaskCancelled(task.id),
+      onChunkStarted: (chunk) {
+        AppLogger().i(
+          '开始抽帧 chunk ${chunk.index}: '
+          '${chunk.startSeconds.toStringAsFixed(3)}-'
+          '${chunk.endSeconds.toStringAsFixed(3)}s',
+        );
+      },
+      extractChunk: (chunk, directory) {
+        return VideoUtils.extractRawRgbFrameChunk(
+          videoPath: task.videoPath,
+          framesPerSecond: _fileFramesPerSecond,
+          tempDir: directory,
+          startSeconds: chunk.startSeconds,
+          durationSeconds: chunk.durationSeconds,
+          width: ImagePreprocessor.inputSize,
+          height: ImagePreprocessor.inputSize,
+        );
+      },
+      consumeFrame: (frame) async {
+        _maybeLogFrameHeartbeat(
+          Tuple(item1: frame.timestampSeconds, item2: frame.filePath),
+        );
+        await _actionSegmentDetector?.addRgb24Prediction(
+          frame.filePath,
+          frame.timestampSeconds,
+        );
+      },
+    );
+  }
+
+  Future<bool> _consumeRealtimeFrameStream(
+    VideoSegmentDetectTask task,
+    Stream<Tuple<double, String>?> frameStream,
+  ) async {
+    final completer = Completer<void>();
+    _taskCompleters[task.id] = completer;
+    _frameStreamSubscription = frameStream.listen(
+      (frame) async {
+        if (frame == null) return;
+        _maybeLogFrameHeartbeat(frame);
+        if (_isTaskCancelled(task.id)) {
+          await _frameStreamSubscription?.cancel();
+          if (!completer.isCompleted) completer.complete();
+          return;
+        }
+        await _actionSegmentDetector?.addPrediction(
+          frame.item2,
+          frame.item1,
+        );
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        AppLogger().e('Frame stream error: $error', stackTrace, error);
+        if (!completer.isCompleted) completer.completeError(error, stackTrace);
+      },
+      onDone: () {
+        if (!completer.isCompleted) completer.complete();
+      },
+      cancelOnError: false,
+    );
+    await completer.future;
+    return !_isTaskCancelled(task.id);
   }
 
   // 初始化实时检测器
   Future<void> _initializeRealtimeDetector(VideoSegmentDetectTask task) async {
     // 三端统一走 ncnn：先把模型资产落盘，再构造预测器。FFI 推理在 native
     // 线程池执行，不阻塞 isolate；无 worker-messenger 需求。
-    final sportTypeKey = task.sportType == SportType.badminton
-        ? 'badminton'
-        : 'ping_pong';
-    // 与桌面端/云端对齐：乒乓球默认 profession，羽毛球默认 singles。
-    final matchTypeKey = task.sportType == SportType.badminton
-        ? 'singles'
-        : 'profession';
-    final inferenceSpec = await NcnnModelAssetResolver.resolve(
-      sportType: sportTypeKey,
-      matchType: matchTypeKey,
+    final inferenceSpec = await NcnnModelAssetResolver.resolveForTask(
+      sportType: task.sportType ?? SportType.pingpong,
+      matchType: task.matchType,
     );
     _inferencePredictor = NcnnModelPredictor(
       paramFilePath: inferenceSpec.paramFilePath,
@@ -363,13 +377,23 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
 
   // 停止实时检测器
   Future<void> _stopRealtimeDetector({bool force = false}) async {
-    if (_actionSegmentDetector != null) {
-      await _actionSegmentDetector!.stop(force: force);
-      _actionSegmentDetector = null;
-    }
-    // 检测器停了以后推理资源（worker isolate 或主 isolate 引擎）不再需要
-    await _inferencePredictor?.dispose();
+    final detector = _actionSegmentDetector;
+    final predictor = _inferencePredictor;
+    _actionSegmentDetector = null;
     _inferencePredictor = null;
+    try {
+      if (detector != null) {
+        try {
+          await detector.stop(force: force);
+        } finally {
+          await detector.dispose();
+        }
+      }
+    } finally {
+      // Even if detector finalization fails, native inference resources must
+      // still be released.
+      await predictor?.dispose();
+    }
   }
 
   /// 处理检测到的片段，应用与批量检测相同的过滤和处理逻辑
@@ -553,15 +577,14 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
               ),
             )
             as VideoSegmentDetectTask;
-    Stream<Tuple<double, String>?> frameStream;
+    _cancelRequestedTaskIds.remove(realtimeDetectTask.id);
+    Stream<Tuple<double, String>?>? frameStream;
     if (realtimeDetectTask.frameStreamId != null) {
       frameStream =
           await MemoryStreamService().getStream(
                 realtimeDetectTask.frameStreamId!,
               )
               as Stream<Tuple<double, String>?>;
-    } else {
-      frameStream = await getStream(realtimeDetectTask.videoPath);
     }
     await _startTask(realtimeDetectTask, frameStream);
   }
@@ -569,15 +592,14 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
   @override
   Future<void> retryTask(Task task) async {
     final realtimeDetectTask = task as VideoSegmentDetectTask;
-    Stream<Tuple<double, String>?> frameStream;
+    _cancelRequestedTaskIds.remove(realtimeDetectTask.id);
+    Stream<Tuple<double, String>?>? frameStream;
     if (realtimeDetectTask.frameStreamId != null) {
       frameStream =
           await MemoryStreamService().getStream(
                 realtimeDetectTask.frameStreamId!,
               )
               as Stream<Tuple<double, String>?>;
-    } else {
-      frameStream = await getStream(realtimeDetectTask.videoPath);
     }
     await _startTask(realtimeDetectTask, frameStream);
   }
@@ -585,6 +607,20 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
   @override
   Future<void> cancelTask(Task task) async {
     log('cancelTask: ${task.id}');
+    _cancelRequestedTaskIds.add(task.id);
+
+    // Best-effort cancellation of the current chunk extraction. If inference
+    // is active, the awaited current frame finishes and the pipeline observes
+    // the flag before consuming another frame or creating another chunk.
+    if (task is VideoSegmentDetectTask && task.frameStreamId == null) {
+      try {
+        await FFmpegRunner.instance.cancel();
+      } catch (error, stackTrace) {
+        AppLogger().w('取消当前 FFmpeg chunk 失败，将在 chunk 边界停止: $error');
+        log('FFmpeg cancel stack trace: $stackTrace');
+      }
+    }
+
     // 取消 frameStream 订阅（如果正在运行）
     await _frameStreamSubscription?.cancel();
     _frameStreamSubscription = null;
@@ -596,12 +632,8 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
     }
     _taskCompleters.remove(task.id);
 
-    // 清理该任务的进度更新节流器
-    _progressThrottlers[task.id]?.dispose();
-    _progressThrottlers.remove(task.id);
-
-    // 停止实时检测器（如果正在运行）
-    await _stopRealtimeDetector(force: true);
+    // Detector/predictor disposal is owned by the running task lifecycle so it
+    // cannot race with a frame currently being inferred.
   }
 
   @override
@@ -612,6 +644,7 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
             videoPath TEXT NOT NULL,
             clipConfig TEXT,
             sportType INTEGER,
+            matchType INTEGER NOT NULL DEFAULT 1,
             edittingRecordId TEXT
           )
         ''';
@@ -627,13 +660,18 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
           ? jsonEncode(realtimeDetectTask.clipConfig!.toJson())
           : '',
       'sportType': realtimeDetectTask.sportType?.value,
+      'matchType': realtimeDetectTask.matchType.value,
       'edittingRecordId': realtimeDetectTask.edittingRecordId,
     };
   }
 
   @override
   Map<int, String> getUpgradeTableSql(int oldVersion) {
-    return {};
+    if (oldVersion == 0) return {};
+    return {
+      11:
+          'ALTER TABLE $videoSegmentDetectTable ADD COLUMN matchType INTEGER',
+    };
   }
 
   @override

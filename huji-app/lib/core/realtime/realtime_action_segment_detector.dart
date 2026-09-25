@@ -129,7 +129,7 @@ abstract class RealtimeActionSegmentDetector<C extends VideoClipConfigReqVo>
     _pendingPredictionQueue.add(
       _PendingPredictionTask(imagePath: imagePath, timestamp: timestamp),
     );
-    _processPendingPredictionQueue();
+    await _processPendingPredictionQueue();
   }
 
   /// 添加 classify 裁剪 RGB24 裸帧文件（FFmpeg 输出，跳过图片解码）
@@ -150,7 +150,7 @@ abstract class RealtimeActionSegmentDetector<C extends VideoClipConfigReqVo>
       ),
     );
     _frameSize = size;
-    _processPendingPredictionQueue();
+    await _processPendingPredictionQueue();
   }
 
   int _frameSize = ImagePreprocessor.inputSize;
@@ -401,7 +401,9 @@ abstract class RealtimeActionSegmentDetector<C extends VideoClipConfigReqVo>
 
   /// 释放资源
   Future<void> dispose() async {
-    await stop();
+    if (_isRunning) {
+      await stop();
+    }
     _listeners.clear();
     _detectedSegments.clear();
     _clearAllWindows();

@@ -23,5 +23,16 @@ void main() {
         PlatformCapability.supportsGalleryAccess,
       );
     });
+
+    test('offline configuration disables remote product surfaces', () {
+      final visibility = FeatureVisibility.instance;
+      visibility.configureOffline();
+
+      expect(visibility.loaded, isTrue);
+      expect(visibility.enableCloudClip, isFalse);
+      expect(visibility.cloudClipAvailable, isFalse);
+      expect(visibility.showSubscriptionPage, isFalse);
+      expect(visibility.showAdPage, isFalse);
+    });
   });
 }

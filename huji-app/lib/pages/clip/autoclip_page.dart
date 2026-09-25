@@ -32,8 +32,13 @@ import 'package:huji_app/theme/themed_mobile.dart';
 
 class VideoEditConfigPage extends StatefulWidget {
   final RawVideoRecord rawVideoRecord;
+  final bool autoStartLocal;
 
-  const VideoEditConfigPage({super.key, required this.rawVideoRecord});
+  const VideoEditConfigPage({
+    super.key,
+    required this.rawVideoRecord,
+    this.autoStartLocal = false,
+  });
 
   @override
   State<VideoEditConfigPage> createState() => _VideoEditConfigPageState();
@@ -80,6 +85,11 @@ class _VideoEditConfigPageState extends State<VideoEditConfigPage> {
     if (rawRecord.clipMode == ClipMode.existingVideo &&
         rawRecord.filePath != null) {
       initPlayer(rawRecord.filePath!);
+    }
+    if (widget.autoStartLocal) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _runLocalVideoClip();
+      });
     }
   }
 
@@ -326,7 +336,8 @@ class _VideoEditConfigPageState extends State<VideoEditConfigPage> {
       createdAt: DateTime.now().millisecondsSinceEpoch,
       videoPath: rawRecord.filePath!,
       sportType: rawRecord.sportType,
-      clipConfig: rawRecord.videoClipConfigReqVo,
+      matchType: configValues.matchType,
+      clipConfig: configValues,
       frameStreamId: null,
       detectedTime: _currentLocalTask?.detectedTime ?? 0.0,
     );
@@ -539,7 +550,10 @@ class _VideoEditConfigPageState extends State<VideoEditConfigPage> {
                                   width: double.infinity,
                                   child: TpButton(
                                     size: TpControlSize.large,
-                                    onPressed: (isUploading || isProcessing)
+                                    onPressed:
+                                        (isUploading ||
+                                            isProcessing ||
+                                            isLocalProcessing)
                                         ? null
                                         : () {
                                             _uploadThrottler.call(() {
@@ -600,7 +614,10 @@ class _VideoEditConfigPageState extends State<VideoEditConfigPage> {
                         Expanded(
                           child: TpButton(
                             size: TpControlSize.large,
-                            onPressed: (isUploading || isProcessing)
+                            onPressed:
+                                (isUploading ||
+                                    isProcessing ||
+                                    isLocalProcessing)
                                 ? null
                                 : () {
                                     _localClipThrottler.call(() {

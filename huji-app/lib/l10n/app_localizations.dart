@@ -3944,6 +3944,24 @@ abstract class HujiLocalizations {
   /// **'Official website'**
   String get officialWebsite;
 
+  /// No description provided for @offlineBadmintonDoubles.
+  ///
+  /// In en, this message translates to:
+  /// **'Badminton doubles'**
+  String get offlineBadmintonDoubles;
+
+  /// No description provided for @offlineBadmintonSingles.
+  ///
+  /// In en, this message translates to:
+  /// **'Badminton singles'**
+  String get offlineBadmintonSingles;
+
+  /// No description provided for @offlineBadmintonStartAnalysis.
+  ///
+  /// In en, this message translates to:
+  /// **'Start analysis'**
+  String get offlineBadmintonStartAnalysis;
+
   /// No description provided for @openBrowserFailed.
   ///
   /// In en, this message translates to:

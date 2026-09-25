@@ -132,6 +132,7 @@ class _RecordAndClipPageState extends State<RecordAndClipPage> {
       videoPath: videoPath!,
       image: null, // 录制中暂时没有缩略图
       sportType: widget.sportType,
+      matchType: widget.config.matchType,
       clipConfig: widget.config,
       frameStreamId: _frameStreamId,
       detectedTime: 0.0,

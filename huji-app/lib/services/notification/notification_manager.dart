@@ -4,6 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:huji_app/utils/logger_utils.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:huji_app/models/task.dart';
+import 'package:huji_app/config/product_mode.dart';
 import 'package:huji_app/router/app_router.dart';
 import 'package:huji_app/router/modules/main.dart';
 import 'package:huji_app/services/notification/task_notification_service.dart';
@@ -119,7 +120,11 @@ class NotificationManager implements NotificationService<dynamic> {
   }
 
   void _onNotificationTapped(NotificationResponse response) {
-    appRouter.go(MainRoute.main);
+    appRouter.go(
+      ProductModeConfig.isOfflineBadminton
+          ? MainRoute.mainTask
+          : MainRoute.main,
+    );
   }
 
   Future<void> _requestPermissions() async {

@@ -11,6 +11,10 @@ import 'package:huji_app/pages/clip/video_post_edit_page.dart';
 import 'package:huji_app/router/types.dart';
 
 class ClipRoute implements RouteModule {
+  const ClipRoute({this.offlineBadminton = false});
+
+  final bool offlineBadminton;
+
   static const String clipTypeSelection = '/clip/type-selection';
   static const String sportSelection = '/clip/sport-selection';
   static const String videoEditConfig = '/video/edit-config';
@@ -25,18 +29,24 @@ class ClipRoute implements RouteModule {
         path: videoEditConfig,
         name: 'videoEditConfig',
         builder: (context, state) {
-          final rawVideoRecord = state.extra as RawVideoRecord?;
+          final extra = state.extra;
+          final routeArgs = extra is VideoEditConfigRouteArgs ? extra : null;
+          final rawVideoRecord = routeArgs?.rawVideoRecord ??
+              (extra is RawVideoRecord ? extra : null);
           if (rawVideoRecord == null) {
             return const Scaffold(
               body: Center(child: Text('Missing rawVideoRecord parameter')),
             );
           }
-          return VideoEditConfigPage(rawVideoRecord: rawVideoRecord);
+          return VideoEditConfigPage(
+            rawVideoRecord: rawVideoRecord,
+            autoStartLocal: routeArgs?.autoStartLocal ?? false,
+          );
         },
       ),
 
       // 剪辑类型选择页
-      GoRoute(
+      if (!offlineBadminton) GoRoute(
         path: clipTypeSelection,
         name: 'clipTypeSelection',
         builder: (context, state) {
@@ -47,7 +57,7 @@ class ClipRoute implements RouteModule {
       ),
 
       // 运动类型选择页
-      GoRoute(
+      if (!offlineBadminton) GoRoute(
         path: sportSelection,
         name: 'sportSelection',
         builder: (context, state) {
@@ -61,7 +71,7 @@ class ClipRoute implements RouteModule {
       ),
 
       // 视频后期编辑页
-      GoRoute(
+      if (!offlineBadminton) GoRoute(
         path: videoPostEdit,
         name: 'videoPostEdit',
         builder: (context, state) {
@@ -81,4 +91,14 @@ class ClipRoute implements RouteModule {
       ),
     ];
   }
+}
+
+class VideoEditConfigRouteArgs {
+  const VideoEditConfigRouteArgs({
+    required this.rawVideoRecord,
+    this.autoStartLocal = false,
+  });
+
+  final RawVideoRecord rawVideoRecord;
+  final bool autoStartLocal;
 }

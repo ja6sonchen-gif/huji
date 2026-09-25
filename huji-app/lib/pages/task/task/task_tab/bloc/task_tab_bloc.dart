@@ -11,9 +11,10 @@ import 'task_tab_state.dart';
 /// 任务标签页 Bloc
 class TaskTabBloc extends Bloc<TaskTabEvent, TaskTabState> {
   final TaskStorage _taskStorage = TaskStorage();
+  final Set<TaskTypeEnum>? allowedTaskTypes;
   late final VoidCallback _taskStorageListener;
 
-  TaskTabBloc() : super(TaskTabState()) {
+  TaskTabBloc({this.allowedTaskTypes}) : super(TaskTabState()) {
     on<TaskTabInitializeEvent>(_onInitialize);
     on<TaskTabTasksUpdatedEvent>(_onTasksUpdated);
     on<TaskTabUpdateFilterEvent>(_onUpdateFilter);
@@ -31,13 +32,19 @@ class TaskTabBloc extends Bloc<TaskTabEvent, TaskTabState> {
 
     _taskStorageListener = () {
       if (isClosed) return;
-      final tasks = _taskStorage.tasks;
+      final tasks = _visibleTasks(_taskStorage.tasks);
       if (TaskTabListUtils.isProgressOnlySnapshot(state.allTasks, tasks)) {
         return;
       }
       add(const TaskTabTasksUpdatedEvent());
     };
     _taskStorage.addListener(_taskStorageListener);
+  }
+
+  List<Task> _visibleTasks(List<Task> tasks) {
+    final allowed = allowedTaskTypes;
+    if (allowed == null) return tasks;
+    return tasks.where((task) => allowed.contains(task.type)).toList();
   }
 
   /// 初始化
@@ -59,8 +66,11 @@ class TaskTabBloc extends Bloc<TaskTabEvent, TaskTabState> {
 
   /// 更新任务列表和筛选结果
   void _updateTasks(Emitter<TaskTabState> emit) {
-    final allTasks = _taskStorage.tasks;
-    final taskCounts = _taskStorage.getTaskCounts();
+    final allTasks = _visibleTasks(_taskStorage.tasks);
+    final taskCounts = <TaskStatusEnum, int>{
+      for (final status in TaskStatusEnum.values)
+        status: allTasks.where((task) => task.status == status).length,
+    };
 
     // 应用筛选条件
     final filteredTasks = _applyFilters(allTasks);
