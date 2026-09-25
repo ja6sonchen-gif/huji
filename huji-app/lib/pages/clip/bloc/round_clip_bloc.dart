@@ -5,12 +5,14 @@ import '../../../l10n/app_localizations.dart';
 import '../../../models/video.dart';
 import '../../../models/autoclip_models.dart';
 import '../../../store/video.dart';
+import '../../../utils/video_utils.dart';
 import '../../../widgets/multi_video_player/models/video_playback_item.dart';
 import '../../../widgets/multi_video_player/segment_playback_factory.dart';
 import '../../../widgets/multi_video_player/bloc/multi_video_player_bloc.dart';
 import '../../../widgets/multi_video_player/bloc/multi_video_player_event.dart';
 import 'round_clip_event.dart';
 import 'round_clip_state.dart';
+import '../round_segment_tools.dart';
 
 /// 回合编辑页面Bloc
 class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
@@ -31,6 +33,10 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
     on<SetCurrentPlayingSegmentEvent>(_onSetCurrentPlayingSegment);
     on<ToggleFavoriteEvent>(_onToggleFavorite);
     on<DeleteSegmentEvent>(_onDeleteSegment);
+    on<AdjustRoundBoundaryEvent>(_onAdjustRoundBoundary);
+    on<ExpandRoundBoundariesEvent>(_onExpandRoundBoundaries);
+    on<DeleteShortRoundsEvent>(_onDeleteShortRounds);
+    on<UndoShortRoundDeletionEvent>(_onUndoShortRoundDeletion);
     on<UpdateVideoRecordEvent>(_onUpdateVideoRecord);
     on<PlaySegmentEvent>(_onPlaySegment);
     on<UpdatePlaybackItemsEvent>(_onUpdatePlaybackItems);
@@ -63,6 +69,19 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
           return;
         }
 
+        var durationSeconds = event.videoRecord!.allMatchSegments.fold<double>(
+          0,
+          (max, segment) => segment.endSeconds > max ? segment.endSeconds : max,
+        );
+        try {
+          durationSeconds = (await VideoUtils.getVideoBaseInfo(
+            videoFile.path,
+          )).duration;
+        } catch (_) {
+          // Keep the detected segment extent as a safe fallback; export still
+          // validates and probes the source before processing.
+        }
+
         // 创建播放项列表
         final playbackItems = _createVideoPlaybackItems(event.videoRecord!);
 
@@ -73,6 +92,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
           state.copyWith(
             videoRecord: event.videoRecord,
             playbackItems: playbackItems,
+            videoDurationSeconds: durationSeconds,
             isLoading: false,
           ),
         );
@@ -94,6 +114,176 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
     }
   }
 
+  Future<void> _onAdjustRoundBoundary(
+    AdjustRoundBoundaryEvent event,
+    Emitter<RoundClipState> emit,
+  ) async {
+    final record = state.videoRecord;
+    if (record == null) return;
+    final updated = RoundSegmentTools.adjustBoundary(
+      event.segment,
+      adjustStart: event.adjustStart,
+      deltaSeconds: event.deltaSeconds,
+      videoDurationSeconds: state.videoDurationSeconds,
+    );
+    final all = record.allMatchSegments.map((segment) {
+      return _sameSegment(segment, event.segment) ? updated : segment;
+    }).toList();
+    final favorites = record.favoritesMatchSegments.map((segment) {
+      return _sameSegment(segment, event.segment) ? updated : segment;
+    }).toList();
+    final updatedRecord = record.copyWith(
+      allMatchSegments: all,
+      favoritesMatchSegments: favorites,
+    );
+    try {
+      await _persistEdits(updatedRecord);
+      emit(state.copyWith(
+        videoRecord: updatedRecord,
+        currentPlayingSegment: updated,
+      ));
+      add(const UpdatePlaybackItemsEvent());
+    } catch (e) {
+      emit(state.copyWith(errorMessage: _l10n.saveSegmentFailedWithError('$e')));
+    }
+  }
+
+  Future<void> _onExpandRoundBoundaries(
+    ExpandRoundBoundariesEvent event,
+    Emitter<RoundClipState> emit,
+  ) async {
+    final record = state.videoRecord;
+    if (record == null) return;
+    if (event.currentOnly && state.currentPlayingSegment == null) return;
+    final playBall = record.allMatchSegments
+        .where((segment) => segment.actionType == ActionType.playBall)
+        .toList();
+    final expanded = RoundSegmentTools.expandAndMerge(
+      segments: playBall,
+      beforeSeconds: event.beforeSeconds,
+      afterSeconds: event.afterSeconds,
+      videoDurationSeconds: state.videoDurationSeconds,
+      only: event.currentOnly ? state.currentPlayingSegment : null,
+    );
+    final otherSegments = record.allMatchSegments
+        .where((segment) => segment.actionType != ActionType.playBall);
+    final mergedFavorites = expanded.where((segment) {
+      return record.favoritesMatchSegments.any((favorite) =>
+          favorite.actionType == segment.actionType &&
+          favorite.startSeconds <= segment.endSeconds &&
+          favorite.endSeconds >= segment.startSeconds);
+    }).toList();
+    final updatedRecord = record.copyWith(
+      allMatchSegments: [...otherSegments, ...expanded],
+      favoritesMatchSegments: mergedFavorites,
+    );
+    try {
+      await _persistEdits(updatedRecord);
+      emit(state.copyWith(
+        videoRecord: updatedRecord,
+        clearCurrentPlayingSegment: true,
+        isSegmentPlaying: false,
+      ));
+      add(const UpdatePlaybackItemsEvent());
+    } catch (e) {
+      emit(state.copyWith(errorMessage: _l10n.saveSegmentFailedWithError('$e')));
+    }
+  }
+
+  Future<void> _onDeleteShortRounds(
+    DeleteShortRoundsEvent event,
+    Emitter<RoundClipState> emit,
+  ) async {
+    final record = state.videoRecord;
+    if (record == null) return;
+    final indexedSegments = record.allMatchSegments
+        .asMap()
+        .entries
+        .where((entry) => entry.value.actionType == ActionType.playBall)
+        .toList();
+    final shortEntries = RoundSegmentTools.removeShorterThan(
+      indexedSegments.map((entry) => entry.value).toList(),
+      event.thresholdSeconds,
+    );
+    final deleted = shortEntries.map((entry) {
+      final originalIndex = indexedSegments[entry.originalIndex].key;
+      return DeletedRoundForUndo(
+        originalIndex: originalIndex,
+        segment: entry.segment,
+        wasFavorite: record.favoritesMatchSegments.any(
+          (favorite) => _sameSegment(favorite, entry.segment),
+        ),
+      );
+    }).toList();
+    if (deleted.isEmpty) return;
+    final deletedSegments = deleted.map((item) => item.segment).toList();
+    final updatedRecord = record.copyWith(
+      allMatchSegments: record.allMatchSegments
+          .where((segment) => !deletedSegments.any((d) => _sameSegment(d, segment)))
+          .toList(),
+      favoritesMatchSegments: record.favoritesMatchSegments
+          .where((segment) => !deletedSegments.any((d) => _sameSegment(d, segment)))
+          .toList(),
+    );
+    try {
+      await _persistEdits(updatedRecord);
+      emit(state.copyWith(
+        videoRecord: updatedRecord,
+        lastDeletedRounds: deleted,
+        clearCurrentPlayingSegment: true,
+        isSegmentPlaying: false,
+      ));
+      add(const UpdatePlaybackItemsEvent());
+    } catch (e) {
+      emit(state.copyWith(errorMessage: _l10n.deleteFailedWithError('$e')));
+    }
+  }
+
+  Future<void> _onUndoShortRoundDeletion(
+    UndoShortRoundDeletionEvent event,
+    Emitter<RoundClipState> emit,
+  ) async {
+    final record = state.videoRecord;
+    final deleted = state.lastDeletedRounds;
+    if (record == null || deleted.isEmpty) return;
+    var all = List<SegmentInfo>.of(record.allMatchSegments);
+    final favorites = List<SegmentInfo>.of(record.favoritesMatchSegments);
+    final missing = deleted.where((item) =>
+      !all.any((segment) => _sameSegment(segment, item.segment))
+    ).toList();
+    all = RoundSegmentTools.restoreRemovedRounds(
+      all,
+      missing
+          .map((item) => RemovedRoundEntry(item.originalIndex, item.segment))
+          .toList(),
+    );
+    for (final item in deleted) {
+      if (item.wasFavorite &&
+          !favorites.any((segment) => _sameSegment(segment, item.segment))) {
+        favorites.add(item.segment);
+      }
+    }
+    final updatedRecord = record.copyWith(
+      allMatchSegments: all,
+      favoritesMatchSegments: favorites,
+    );
+    try {
+      await _persistEdits(updatedRecord);
+      emit(state.copyWith(
+        videoRecord: updatedRecord,
+        lastDeletedRounds: const [],
+      ));
+      add(const UpdatePlaybackItemsEvent());
+    } catch (e) {
+      emit(state.copyWith(errorMessage: _l10n.saveSegmentFailedWithError('$e')));
+    }
+  }
+
+  bool _sameSegment(SegmentInfo a, SegmentInfo b) =>
+      a.actionType == b.actionType &&
+      a.startSeconds == b.startSeconds &&
+      a.endSeconds == b.endSeconds;
+
   /// 设置当前播放片段事件处理
   void _onSetCurrentPlayingSegment(
     SetCurrentPlayingSegmentEvent event,
@@ -102,6 +292,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
     emit(
       state.copyWith(
         currentPlayingSegment: event.segment,
+        clearCurrentPlayingSegment: event.segment == null,
         isSegmentPlaying: event.isPlaying,
       ),
     );
@@ -178,7 +369,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
         emit(
           state.copyWith(
             videoRecord: updatedRecord,
-            currentPlayingSegment: null,
+            clearCurrentPlayingSegment: true,
             isSegmentPlaying: false,
           ),
         );
@@ -431,9 +622,10 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
       );
     } else {
       // 如果没有找到对应的片段，清空当前播放片段
-      emit(
-        state.copyWith(currentPlayingSegment: null, isSegmentPlaying: false),
-      );
+      emit(state.copyWith(
+        clearCurrentPlayingSegment: true,
+        isSegmentPlaying: false,
+      ));
     }
   }
 
@@ -460,7 +652,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
       emit(
         state.copyWith(
           videoRecord: updatedRecord,
-          currentPlayingSegment: null,
+          clearCurrentPlayingSegment: true,
           isSegmentPlaying: false,
         ),
       );
@@ -565,9 +757,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
         state.copyWith(
           videoRecord: updatedRecord,
           // 只有在 isFlushState=true 时才清除播放状态
-          currentPlayingSegment: event.isFlushState
-              ? null
-              : state.currentPlayingSegment,
+          clearCurrentPlayingSegment: event.isFlushState,
           isSegmentPlaying: event.isFlushState ? false : state.isSegmentPlaying,
         ),
       );

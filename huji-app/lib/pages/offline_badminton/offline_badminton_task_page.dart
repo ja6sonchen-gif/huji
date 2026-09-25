@@ -19,8 +19,14 @@ class OfflineBadmintonTaskPage extends StatelessWidget {
         ),
         title: Text(context.hujiL10n.localTasks),
       ),
-      body: const TaskTabContent(
+      body: TaskTabContent(
         allowedTaskTypes: {TaskTypeEnum.videoSegmentDetect},
+        initialStatuses: {
+          TaskStatusEnum.completed,
+          TaskStatusEnum.processing,
+          TaskStatusEnum.pending,
+          TaskStatusEnum.failed,
+        },
       ),
     );
   }

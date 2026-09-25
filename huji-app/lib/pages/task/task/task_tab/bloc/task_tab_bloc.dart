@@ -4,6 +4,7 @@ import 'package:huji_app/models/task.dart';
 import 'package:huji_app/store/task/task_manager.dart';
 
 import 'package:huji_app/pages/task/task/task_tab/task_tab_list_utils.dart';
+import 'package:huji_app/pages/task/task/task_tab/task_tab_content_filter_dialog.dart';
 
 import 'task_tab_event.dart';
 import 'task_tab_state.dart';
@@ -12,9 +13,11 @@ import 'task_tab_state.dart';
 class TaskTabBloc extends Bloc<TaskTabEvent, TaskTabState> {
   final TaskStorage _taskStorage = TaskStorage();
   final Set<TaskTypeEnum>? allowedTaskTypes;
+  final Set<TaskStatusEnum>? initialStatuses;
   late final VoidCallback _taskStorageListener;
 
-  TaskTabBloc({this.allowedTaskTypes}) : super(TaskTabState()) {
+  TaskTabBloc({this.allowedTaskTypes, this.initialStatuses})
+    : super(TaskTabState(filter: TaskFilter(selectedStatuses: initialStatuses))) {
     on<TaskTabInitializeEvent>(_onInitialize);
     on<TaskTabTasksUpdatedEvent>(_onTasksUpdated);
     on<TaskTabUpdateFilterEvent>(_onUpdateFilter);

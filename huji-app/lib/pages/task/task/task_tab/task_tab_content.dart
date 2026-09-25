@@ -18,9 +18,10 @@ import 'package:shared_ui/shared_ui.dart';
 import '../../../../models/task.dart';
 
 class TaskTabContent extends StatefulWidget {
-  const TaskTabContent({super.key, this.allowedTaskTypes});
+  const TaskTabContent({super.key, this.allowedTaskTypes, this.initialStatuses});
 
   final Set<TaskTypeEnum>? allowedTaskTypes;
+  final Set<TaskStatusEnum>? initialStatuses;
 
   @override
   State<TaskTabContent> createState() => _TaskTabContentState();
@@ -34,7 +35,10 @@ class _TaskTabContentState extends State<TaskTabContent> {
   @override
   void initState() {
     super.initState();
-    _taskTabBloc = TaskTabBloc(allowedTaskTypes: widget.allowedTaskTypes);
+    _taskTabBloc = TaskTabBloc(
+      allowedTaskTypes: widget.allowedTaskTypes,
+      initialStatuses: widget.initialStatuses,
+    );
     _taskTabBloc.add(const TaskTabInitializeEvent());
     _rowCallbacks = TaskRowCallbacks(
       onTap: (task) => handleTaskTap(context, task),

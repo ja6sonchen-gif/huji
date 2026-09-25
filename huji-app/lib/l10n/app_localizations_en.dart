@@ -4303,5 +4303,44 @@ class HujiLocalizationsEn extends HujiLocalizations {
   String get windowControlRestore => 'Restore';
 
   @override
+  String get adjustRoundEnd => 'End time';
+
+  @override
+  String get adjustRoundStart => 'Start time';
+
+  @override
+  String get applyAllRounds => 'Apply to all rounds';
+
+  @override
+  String get applyCurrentRound => 'Apply to current round';
+
+  @override
+  String get afterRoundExpansion => 'After each round (seconds)';
+
+  @override
+  String get batchProcess => 'Batch process';
+
+  @override
+  String get beforeRoundExpansion => 'Before each round (seconds)';
+
+  @override
+  String get deleteShortRounds => 'Delete short rounds';
+
+  @override
+  String get expandRoundBoundaries => 'Expand round boundaries';
+
+  @override
+  String get historyClips => 'Clip history';
+
+  @override
+  String get shortRoundPreview => 'Rounds to delete';
+
+  @override
+  String get shortRoundThreshold => 'Delete rounds shorter than (seconds)';
+
+  @override
+  String get undoLastBatchDelete => 'Undo last batch deletion';
+
+  @override
   String get wrapLinesLabel => 'Wrap lines';
 }

@@ -5,6 +5,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
 import 'package:go_router/go_router.dart';
 import 'package:huji_app/api/models/autoclip/permission_models.dart';
+import 'package:huji_app/config/product_mode.dart';
+import 'package:huji_app/services/local_export_source.dart';
 import 'package:huji_app/pages/clip/round_selection_dialog.dart';
 import 'package:huji_app/router/modules/main.dart';
 import 'package:huji_app/widgets/multi_video_player/bloc/multi_video_player_event.dart';
@@ -282,6 +284,9 @@ class _RoundClipPageState extends State<RoundClipPage>
               // 全部回合区域
               _buildAllRoundsSection(state),
 
+              if (state.currentPlayingSegment != null)
+                _buildBoundaryAdjustment(state.currentPlayingSegment!),
+
               SizedBox(height: 16),
 
               // 收藏回合区域
@@ -333,6 +338,42 @@ class _RoundClipPageState extends State<RoundClipPage>
                   color: context.cs.mutedForeground,
                 ),
               ),
+              const SizedBox(width: 4),
+              TpActionMenuButton(
+                icon: const Icon(Icons.tune),
+                specs: [
+                  TpActionMenuSpec.item(
+                    value: 'delete_short',
+                    icon: Icons.delete_sweep_outlined,
+                    label: l10n.deleteShortRounds,
+                  ),
+                  TpActionMenuSpec.item(
+                    value: 'expand',
+                    icon: Icons.open_in_full,
+                    label: l10n.expandRoundBoundaries,
+                  ),
+                  if (state.lastDeletedRounds.isNotEmpty)
+                    TpActionMenuSpec.item(
+                      value: 'undo_delete',
+                      icon: Icons.undo,
+                      label: l10n.undoLastBatchDelete,
+                    ),
+                ],
+                onSelected: (value) {
+                  switch (value) {
+                    case 'delete_short':
+                      _showDeleteShortRoundsDialog();
+                      break;
+                    case 'expand':
+                      _showExpandRoundsDialog();
+                      break;
+                    case 'undo_delete':
+                      _roundClipBloc.add(const UndoShortRoundDeletionEvent());
+                      break;
+                  }
+                },
+              ),
+              SizedBox(width: 4),
               SizedBox(width: 8),
               // 删除按钮（禁用时保持布局稳定）
               TpIconButton(
@@ -363,6 +404,204 @@ class _RoundClipPageState extends State<RoundClipPage>
                     const ToggleCurrentPlayingSegmentFavoriteEvent(),
                   );
                 },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBoundaryAdjustment(SegmentInfo segment) {
+    final l10n = context.hujiL10n;
+    final cs = context.cs;
+    Widget controls({required bool start}) {
+      final value = start ? segment.startSeconds : segment.endSeconds;
+      final label = start ? l10n.adjustRoundStart : l10n.adjustRoundEnd;
+      return Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('$label  ${value.toStringAsFixed(1)}s'),
+            Row(
+              children: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: '$label -0.5s',
+                  onPressed: () => _roundClipBloc.add(
+                    AdjustRoundBoundaryEvent(
+                      segment: segment,
+                      adjustStart: start,
+                      deltaSeconds: -0.5,
+                    ),
+                  ),
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: '$label +0.5s',
+                  onPressed: () => _roundClipBloc.add(
+                    AdjustRoundBoundaryEvent(
+                      segment: segment,
+                      adjustStart: start,
+                      deltaSeconds: 0.5,
+                    ),
+                  ),
+                  icon: const Icon(Icons.add_circle_outline),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.cardFill,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(children: [controls(start: true), controls(start: false)]),
+    );
+  }
+
+  void _showDeleteShortRoundsDialog() {
+    var threshold = 3.0;
+    var didPreview = false;
+    showTpDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final l10n = context.hujiL10n;
+          final count = RoundSegmentTools.shorterThan(
+            _roundClipBloc.state.playBallSegments,
+            threshold,
+          ).length;
+          return AlertDialog(
+            title: Text(l10n.deleteShortRounds),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${l10n.shortRoundThreshold}: ${threshold.toStringAsFixed(1)}'),
+                Slider(
+                  value: threshold,
+                  min: 0.5,
+                  max: 30,
+                  divisions: 59,
+                  label: threshold.toStringAsFixed(1),
+                  onChanged: (value) => setDialogState(() {
+                    threshold = value;
+                    didPreview = false;
+                  }),
+                ),
+                if (didPreview)
+                  Text('${l10n.shortRoundPreview}: $count'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(l10n.taskStatusCancelledShort),
+              ),
+              TextButton(
+                onPressed: () => setDialogState(() => didPreview = true),
+                child: Text(l10n.previewTitle),
+              ),
+              FilledButton(
+                onPressed: didPreview && count > 0
+                    ? () {
+                        _roundClipBloc.add(DeleteShortRoundsEvent(threshold));
+                        Navigator.of(dialogContext).pop();
+                      }
+                    : null,
+                child: Text(l10n.actionConfirm),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showExpandRoundsDialog() {
+    var before = 0.5;
+    var after = 1.5;
+    var currentOnly = false;
+    showTpDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final l10n = context.hujiL10n;
+          Widget expansionSlider({
+            required String label,
+            required double value,
+            required double max,
+            required ValueChanged<double> onChanged,
+          }) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('$label: ${value.toStringAsFixed(1)}s'),
+              Slider(
+                value: value,
+                min: 0,
+                max: max,
+                divisions: (max * 2).round(),
+                label: '${value.toStringAsFixed(1)}s',
+                onChanged: onChanged,
+              ),
+            ],
+          );
+          return AlertDialog(
+            title: Text(l10n.expandRoundBoundaries),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                expansionSlider(
+                  label: l10n.beforeRoundExpansion,
+                  value: before,
+                  max: 2,
+                  onChanged: (value) => setDialogState(() => before = value),
+                ),
+                expansionSlider(
+                  label: l10n.afterRoundExpansion,
+                  value: after,
+                  max: 3,
+                  onChanged: (value) => setDialogState(() => after = value),
+                ),
+                RadioListTile<bool>(
+                  value: false,
+                  groupValue: currentOnly,
+                  title: Text(l10n.applyAllRounds),
+                  onChanged: (value) => setDialogState(() => currentOnly = value!),
+                ),
+                RadioListTile<bool>(
+                  value: true,
+                  groupValue: currentOnly,
+                  title: Text(l10n.applyCurrentRound),
+                  onChanged: _roundClipBloc.state.currentPlayingSegment == null
+                      ? null
+                      : (value) => setDialogState(() => currentOnly = value!),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(l10n.taskStatusCancelledShort),
+              ),
+              FilledButton(
+                onPressed: () {
+                  _roundClipBloc.add(ExpandRoundBoundariesEvent(
+                    beforeSeconds: before,
+                    afterSeconds: after,
+                    currentOnly: currentOnly,
+                  ));
+                  Navigator.of(dialogContext).pop();
+                },
+                child: Text(l10n.actionConfirm),
               ),
             ],
           );
@@ -1107,30 +1346,34 @@ class _RoundClipPageState extends State<RoundClipPage>
 
   /// 开始编辑 - 跳转到TrimmerView
   Future<void> _startEditing() async {
-    // 检查是否有 custom_config 权限
-    try {
-      final hasPermission = await Api.permission.checkPermission(
-        PermissionEnum.editClip.code,
-      );
-      if (!hasPermission) {
+    // SaaS permission endpoints are not available in the offline product.
+    if (ProductModeConfig.shouldCheckRemotePermissions(
+      ProductModeConfig.current,
+    )) {
+      try {
+        final hasPermission = await Api.permission.checkPermission(
+          PermissionEnum.editClip.code,
+        );
+        if (!hasPermission) {
+          if (mounted) {
+            TpToast.show(
+              context,
+              message: context.hujiL10n.editFeatureUnavailable,
+              variant: TpToastVariant.warning,
+            );
+          }
+          return;
+        }
+      } catch (e) {
         if (mounted) {
           TpToast.show(
             context,
-            message: context.hujiL10n.editFeatureUnavailable,
-            variant: TpToastVariant.warning,
+            message: context.hujiL10n.openEditFeatureFailed,
+            variant: TpToastVariant.error,
           );
         }
         return;
       }
-    } catch (e) {
-      if (mounted) {
-        TpToast.show(
-          context,
-          message: context.hujiL10n.openEditFeatureFailed,
-          variant: TpToastVariant.error,
-        );
-      }
-      return;
     }
 
     final state = _roundClipBloc.state;
@@ -1225,6 +1468,16 @@ class _RoundClipPageState extends State<RoundClipPage>
       return;
     }
 
+    final String sourcePath;
+    try {
+      sourcePath = await LocalExportSource.requireExistingFile(
+        state.videoRecord!.filePath,
+      );
+    } catch (_) {
+      _showErrorMessage(l10n.videoFileNotExist);
+      return;
+    }
+
     // 获取要保存的片段
     final segmentsToSave = _getSegmentsToSave(state);
     if (segmentsToSave.isEmpty) {
@@ -1249,7 +1502,7 @@ class _RoundClipPageState extends State<RoundClipPage>
         context: context,
         barrierDismissible: false,
         builder: (context) => VideoSaveProgressDialog(
-          videoPath: state.videoRecord!.filePath!,
+          videoPath: sourcePath,
           segments: segmentsToSave,
           fileName: state.videoRecord!.filePath!
               .split('/')

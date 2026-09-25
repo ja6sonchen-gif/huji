@@ -4203,5 +4203,44 @@ class HujiLocalizationsZh extends HujiLocalizations {
   String get windowControlRestore => '还原';
 
   @override
+  String get adjustRoundEnd => '结束时间';
+
+  @override
+  String get adjustRoundStart => '开始时间';
+
+  @override
+  String get applyAllRounds => '应用到全部回合';
+
+  @override
+  String get applyCurrentRound => '应用到当前回合';
+
+  @override
+  String get afterRoundExpansion => '回合后扩展（秒）';
+
+  @override
+  String get batchProcess => '批量处理';
+
+  @override
+  String get beforeRoundExpansion => '回合前扩展（秒）';
+
+  @override
+  String get deleteShortRounds => '批量删除短回合';
+
+  @override
+  String get expandRoundBoundaries => '回合前后扩展';
+
+  @override
+  String get historyClips => '历史剪辑';
+
+  @override
+  String get shortRoundPreview => '将删除的回合数';
+
+  @override
+  String get shortRoundThreshold => '删除短于此时长的回合（秒）';
+
+  @override
+  String get undoLastBatchDelete => '恢复最近一次批量删除';
+
+  @override
   String get wrapLinesLabel => '换行显示';
 }

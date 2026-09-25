@@ -156,6 +156,14 @@ class _OfflineBadmintonHomePageState
                       context.hujiL10n.offlineBadmintonStartAnalysis,
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _preparing
+                        ? null
+                        : () => context.go(MainRoute.mainTask),
+                    icon: const Icon(Icons.history),
+                    label: Text(context.hujiL10n.historyClips),
+                  ),
                 ],
               ),
             ),

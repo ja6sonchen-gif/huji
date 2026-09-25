@@ -7596,6 +7596,32 @@ abstract class HujiLocalizations {
   ///
   /// In en, this message translates to:
   /// **'Video is waiting... {count} video(s) ahead in queue'**
+  String get adjustRoundEnd;
+
+  String get adjustRoundStart;
+
+  String get applyAllRounds;
+
+  String get applyCurrentRound;
+
+  String get afterRoundExpansion;
+
+  String get batchProcess;
+
+  String get beforeRoundExpansion;
+
+  String get deleteShortRounds;
+
+  String get expandRoundBoundaries;
+
+  String get historyClips;
+
+  String get shortRoundPreview;
+
+  String get shortRoundThreshold;
+
+  String get undoLastBatchDelete;
+
   String videoWaitingWithQueue(int count);
 
   /// No description provided for @videosFolderName.

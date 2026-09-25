@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,10 +7,12 @@ import 'package:open_file/open_file.dart';
 import 'package:path/path.dart' as path;
 import 'package:huji_app/api/models/autoclip/video_models.dart';
 import 'package:huji_app/services/video_library_registrar.dart';
+import 'package:huji_app/services/local_export_source.dart';
 import 'package:huji_app/utils/debounce/throttles.dart';
 import 'package:huji_app/utils/file_utils.dart' as path_utils;
 import 'package:huji_app/utils/logger_utils.dart';
-import 'package:huji_app/utils/video_utils.dart';
+import 'package:huji_app/utils/video_export_utils.dart';
+import 'package:huji_app/pages/clip/round_segment_tools.dart';
 import 'package:huji_app/widgets/video_player/video_player_page.dart';
 
 import '../models/autoclip_models.dart';
@@ -59,6 +60,7 @@ class _VideoSaveProgressDialogState extends State<VideoSaveProgressDialog> {
   Future<void> _saveVideo() async {
     final l10n = context.hujiL10n;
     try {
+      await LocalExportSource.requireExistingFile(widget.videoPath);
       if (!mounted) return;
       setState(() {
         _status = l10n.savePreparingInProgress;
@@ -85,41 +87,32 @@ class _VideoSaveProgressDialogState extends State<VideoSaveProgressDialog> {
         _status = l10n.saveProcessingSegmentsStart;
       });
 
-      // 准备压缩参数（如果指定了质量）
-      int? crf;
-      int? bitrate; // 比特率（kbps），用于硬件编码器或自定义比特率
-      int? audioBitrate;
-      String? preset;
-      if (widget.quality != null) {
-        // 根据质量获取 CRF 值、比特率、音频比特率和预设
-        // 使用 withDefaultPreset 工厂方法，会根据质量自动选择预设
-        final config = VideoCompressConfig.fromQuality(
-          quality: widget.quality!,
-          includeAudio: true,
-          optimizeForWeb: true,
-        );
-        crf = config.crfValue;
-        // 如果是自定义质量且有自定义比特率，使用自定义比特率；否则使用根据质量获取的比特率
-        bitrate = config.customBitrate;
-        audioBitrate = config.audioBitrate;
-        preset = config.presetString;
-      }
-
-      // 根据片段数量选择保存策略
-      if (widget.segments.length == 1) {
-        // 单个片段，直接裁剪（应用质量设置）
-        await _saveSingleSegment(widget.segments.first, targetPath);
-      } else {
-        // 多个片段，先裁剪再合并（应用质量设置）
-        await _saveMultipleSegments(
-          widget.segments,
-          targetPath,
-          crf: crf,
-          bitrate: bitrate,
-          audioBitrate: audioBitrate,
-          preset: preset,
-        );
-      }
+      final qualityConfig = widget.quality == null
+          ? null
+          : VideoCompressConfig.fromQuality(
+              quality: widget.quality!,
+              includeAudio: true,
+              optimizeForWeb: true,
+            );
+      final exportSegments = RoundSegmentTools.mergeOverlaps(widget.segments);
+      await runConcatVideoExport(
+        videoPath: await LocalExportSource.requireExistingFile(widget.videoPath),
+        segments: exportSegments,
+        quality: VideoExportQualities.original,
+        outputPath: targetPath,
+        crfOverride: qualityConfig?.crfValue,
+        preset: qualityConfig?.presetString,
+        audioBitrate: qualityConfig?.audioBitrate,
+        onProgress: (progress) {
+          if (!mounted) return;
+          setState(() {
+            _progress = 0.2 + progress * 0.7;
+            _status = l10n.saveTrimmingSegmentsProgress(
+              (progress * 100).toStringAsFixed(1),
+            );
+          });
+        },
+      );
 
       // 检查文件是否生成成功
       final file = File(targetPath);
@@ -168,157 +161,6 @@ class _VideoSaveProgressDialogState extends State<VideoSaveProgressDialog> {
         _errorMessage = l10n.videoSaveFailed;
         _status = l10n.saveFailedShort;
       });
-    }
-  }
-
-  /// 保存单个片段
-  Future<void> _saveSingleSegment(SegmentInfo segment, String savePath) async {
-    final l10n = context.hujiL10n;
-    final startTime = segment.startSeconds;
-    final duration = segment.endSeconds - segment.startSeconds;
-
-    if (!mounted) return;
-    setState(() {
-      _progress = 0.2;
-      _status = l10n.saveTrimmingSegments;
-    });
-
-    await VideoUtils.clipVideoByTimes(
-      inputFile: widget.videoPath,
-      startTime: startTime,
-      duration: duration,
-      outputFile: savePath,
-      onProgress: (progress, currentTime, totalDuration) {
-        // 单个片段：裁剪占20%（0.2-0.4），直接完成占60%（0.4-1.0）
-        // 由于单个片段不需要合并，裁剪完成后直接到90%
-        if (mounted) {
-          setState(() {
-            _progress = 0.2 + progress * 0.7; // 0.2 到 0.9
-            _status = l10n.saveTrimmingSegmentsProgress(
-              (progress * 100).toStringAsFixed(1),
-            );
-          });
-        }
-      },
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _progress = 0.9;
-      _status = l10n.videoProcessingComplete;
-    });
-  }
-
-  /// 保存多个片段（先裁剪再合并）
-  Future<void> _saveMultipleSegments(
-    List<SegmentInfo> segments,
-    String savePath, {
-    int? crf,
-    int? bitrate,
-    int? audioBitrate,
-    String? preset,
-  }) async {
-    final l10n = context.hujiL10n;
-    final tempDir = await Directory.systemTemp.createTemp('video_clip_');
-    final tempFiles = <String>[];
-
-    try {
-      // 第一步：裁剪所有片段到临时文件
-      if (!mounted) return;
-      setState(() {
-        _status = l10n.saveTrimmingSegments;
-      });
-
-      for (int i = 0; i < segments.length; i++) {
-        final segment = segments[i];
-        final tempFile = '${tempDir.path}/segment_$i.mp4';
-        tempFiles.add(tempFile);
-
-        final startTime = segment.startSeconds;
-        final duration = segment.endSeconds - segment.startSeconds;
-
-        // 计算当前片段在裁剪阶段的进度范围
-        final segmentStartProgress = 0.2 + (i / segments.length) * 0.2;
-        final segmentEndProgress = 0.2 + ((i + 1) / segments.length) * 0.2;
-
-        if (!mounted) return;
-        setState(() {
-          _status = l10n.saveTrimmingSegment;
-          _progress = segmentStartProgress;
-        });
-
-        await VideoUtils.clipVideoByTimes(
-          inputFile: widget.videoPath,
-          startTime: startTime,
-          duration: duration,
-          outputFile: tempFile,
-          onProgress: (progress, currentTime, totalDuration) {
-            // 将单个片段的进度映射到整体裁剪进度范围
-            if (mounted) {
-              final segmentProgress =
-                  segmentStartProgress +
-                  (progress * (segmentEndProgress - segmentStartProgress));
-              setState(() {
-                _progress = segmentProgress;
-              });
-            }
-          },
-        );
-      }
-
-      // 第二步：合并所有临时文件（应用质量设置）
-      // 合并占50%，从0.4到0.9
-      if (!mounted) return;
-      setState(() {
-        _progress = 0.4;
-        _status = l10n.saveMergingSegments;
-      });
-
-      await VideoUtils.mergeVideosByFFmpeg(
-        inputFiles: tempFiles,
-        outputFile: savePath,
-        codec: 'h264',
-        crf: crf,
-        bitrate: bitrate,
-        preset: preset,
-        includeAudio: true,
-        audioBitrate: audioBitrate,
-        optimizeForWeb: true,
-        onProgress: (progress, currentTime, totalDuration) {
-          // 合并进度映射到 0.4-0.9 范围（占50%）
-          if (mounted) {
-            setState(() {
-              _progress = 0.4 + progress * 0.5;
-            });
-          }
-        },
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _progress = 0.9;
-        _status = l10n.videoProcessingComplete;
-      });
-    } finally {
-      // 清理临时文件
-      if (mounted) {
-        setState(() {
-          _status = l10n.saveCleaningTempFiles;
-        });
-      }
-
-      for (final tempFile in tempFiles) {
-        try {
-          await File(tempFile).delete();
-        } catch (e) {
-          debugPrint('删除临时文件失败: $tempFile, 错误: $e');
-        }
-      }
-      try {
-        await tempDir.delete(recursive: true);
-      } catch (e) {
-        debugPrint('删除临时目录失败: ${tempDir.path}, 错误: $e');
-      }
     }
   }
 

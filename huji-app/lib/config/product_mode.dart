@@ -35,4 +35,7 @@ class ProductModeConfig {
 
   static bool get isOfflineBadminton =>
       current == ProductMode.offlineBadminton;
+
+  static bool shouldCheckRemotePermissions(ProductMode mode) =>
+      mode != ProductMode.offlineBadminton;
 }

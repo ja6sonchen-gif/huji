@@ -82,6 +82,42 @@ void main() {
   });
 
   group('runConcatVideoExport', () {
+    test('preserves known source color metadata without color filters', () {
+      final metadata = VideoColorMetadata.fromProbeJson(
+        '{"streams":[{"color_range":"tv","color_space":"bt709",'
+        '"color_primaries":"bt709","color_transfer":"bt709",'
+        '"pix_fmt":"yuv420p"}]}',
+      );
+
+      final args = buildVideoEncodingArguments(
+        sourceColor: metadata,
+        crf: '18',
+        preset: 'medium',
+        audioBitrate: 128,
+      );
+      expect(args, containsAll([
+        '-pix_fmt', 'yuv420p',
+        '-color_range', 'tv',
+        '-colorspace', 'bt709',
+        '-color_primaries', 'bt709',
+        '-color_trc', 'bt709',
+      ]));
+      expect(args.join(' '), isNot(contains('eq=')));
+      expect(args.join(' '), isNot(contains('hue=')));
+      expect(args.join(' '), isNot(contains('colorbalance')));
+      expect(args, isNot(contains('-vf')));
+    });
+
+    test('omits unspecified source color metadata instead of assuming BT.709', () {
+      final metadata = VideoColorMetadata.fromProbeJson(
+        '{"streams":[{"color_range":"unknown","color_space":"unknown",'
+        '"color_primaries":"unknown","color_transfer":"unknown",'
+        '"pix_fmt":"yuv420p10le"}]}',
+      );
+
+      expect(metadata.toFfmpegArguments(), isEmpty);
+    });
+
     test('empty segments throws', () async {
       await expectLater(
         runConcatVideoExport(

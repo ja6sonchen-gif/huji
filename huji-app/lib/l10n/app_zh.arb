@@ -2659,6 +2659,19 @@
       }
     }
   },
+  "adjustRoundEnd": "结束时间",
+  "adjustRoundStart": "开始时间",
+  "applyAllRounds": "应用到全部回合",
+  "applyCurrentRound": "应用到当前回合",
+  "afterRoundExpansion": "回合后扩展（秒）",
+  "batchProcess": "批量处理",
+  "beforeRoundExpansion": "回合前扩展（秒）",
+  "deleteShortRounds": "批量删除短回合",
+  "expandRoundBoundaries": "回合前后扩展",
+  "historyClips": "历史剪辑",
+  "shortRoundPreview": "将删除的回合数",
+  "shortRoundThreshold": "删除短于此时长的回合（秒）",
+  "undoLastBatchDelete": "恢复最近一次批量删除",
   "@videoWaitingWithQueue": {
     "placeholders": {
       "count": {

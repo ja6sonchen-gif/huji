@@ -6,6 +6,104 @@ import 'package:huji_app/models/autoclip_models.dart';
 import 'package:huji_app/services/ffmpeg/ffmpeg_runner.dart';
 import 'package:huji_app/services/platform_capability.dart';
 
+/// Color description read from the source stream. Unknown/unspecified fields
+/// are deliberately omitted so FFmpeg keeps its normal stream inference.
+class VideoColorMetadata {
+  final String? range;
+  final String? space;
+  final String? primaries;
+  final String? transfer;
+  final String? pixelFormat;
+
+  const VideoColorMetadata({
+    this.range,
+    this.space,
+    this.primaries,
+    this.transfer,
+    this.pixelFormat,
+  });
+
+  factory VideoColorMetadata.fromProbeJson(String? output) {
+    if (output == null || output.isEmpty) return const VideoColorMetadata();
+    try {
+      final json = jsonDecode(output) as Map<String, dynamic>;
+      final streams = json['streams'] as List<dynamic>? ?? const [];
+      if (streams.isEmpty) return const VideoColorMetadata();
+      final stream = streams.first as Map<String, dynamic>;
+      String? value(String key, Set<String> supported) {
+        final candidate = stream[key]?.toString().toLowerCase();
+        return candidate != null && supported.contains(candidate)
+            ? candidate
+            : null;
+      }
+
+      return VideoColorMetadata(
+        range: value('color_range', const {'tv', 'mpeg', 'pc', 'jpeg'}),
+        space: value('color_space', const {
+          'bt709', 'fcc', 'bt470bg', 'smpte170m', 'smpte240m', 'ycgco',
+          'bt2020nc', 'bt2020c', 'smpte2085', 'chroma-derived-nc',
+          'chroma-derived-c', 'ictcp',
+        }),
+        primaries: value('color_primaries', const {
+          'bt709', 'bt470m', 'bt470bg', 'smpte170m', 'smpte240m', 'film',
+          'bt2020', 'smpte428', 'smpte431', 'smpte432', 'jedec-p22',
+          'ebu3213',
+        }),
+        transfer: value('color_transfer', const {
+          'bt709', 'gamma22', 'gamma28', 'smpte170m', 'smpte240m', 'linear',
+          'log', 'log_sqrt', 'iec61966-2-4', 'bt1361e', 'iec61966-2-1',
+          'bt2020-10', 'bt2020-12', 'smpte2084', 'smpte428', 'arib-std-b67',
+        }),
+        pixelFormat: value('pix_fmt', const {
+          'yuv420p', 'yuv422p', 'yuv444p',
+        }),
+      );
+    } catch (_) {
+      return const VideoColorMetadata();
+    }
+  }
+
+  List<String> toFfmpegArguments() => [
+    if (pixelFormat != null) ...['-pix_fmt', pixelFormat!],
+    if (range != null) ...['-color_range', _normalizeRange(range!)],
+    if (space != null) ...['-colorspace', space!],
+    if (primaries != null) ...['-color_primaries', primaries!],
+    if (transfer != null) ...['-color_trc', transfer!],
+  ];
+
+  static String _normalizeRange(String value) =>
+      value == 'mpeg' ? 'tv' : (value == 'jpeg' ? 'pc' : value);
+}
+
+Future<VideoColorMetadata> probeVideoColorMetadata(String videoPath) async {
+  final result = await FFmpegRunner.instance.executeProbe([
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries',
+    'stream=color_range,color_space,color_primaries,color_transfer,pix_fmt',
+    '-of', 'json',
+    videoPath,
+  ]);
+  if (!result.isSuccess) return const VideoColorMetadata();
+  return VideoColorMetadata.fromProbeJson(result.output);
+}
+
+List<String> buildVideoEncodingArguments({
+  required VideoColorMetadata sourceColor,
+  required String crf,
+  required String preset,
+  required int audioBitrate,
+  String? scaleFilter,
+}) => [
+  '-c:v', 'libx264',
+  '-crf', crf,
+  '-preset', preset,
+  if (scaleFilter != null && scaleFilter.isNotEmpty) ...['-vf', scaleFilter],
+  ...sourceColor.toFfmpegArguments(),
+  '-c:a', 'aac',
+  '-b:a', '${audioBitrate}k',
+];
+
 /// 导出画质档位 key（与导出配置页的档位一一对应）。
 abstract final class VideoExportQualities {
   static const original = 'original';
@@ -26,12 +124,17 @@ Future<String> runConcatVideoExport({
   required List<SegmentInfo> segments,
   required String quality,
   required String outputPath,
+  int? crfOverride,
+  String? preset,
+  int? audioBitrate,
   void Function(double progress)? onProgress,
   void Function(Process process)? onProcessStarted,
 }) async {
   if (segments.isEmpty) {
     throw Exception('No segments to export');
   }
+
+  final sourceColor = await probeVideoColorMetadata(videoPath);
 
   await Directory(File(outputPath).parent.path).create(recursive: true);
 
@@ -45,14 +148,12 @@ Future<String> runConcatVideoExport({
   }
   await File(concatPath).writeAsString(buf.toString());
 
-  final (scale, crf) = switch (quality) {
+  final (scale, defaultCrf) = switch (quality) {
     VideoExportQualities.original => ('', '18'),
     VideoExportQualities.p1080 => ('scale=-2:1080', '20'),
     VideoExportQualities.p720 => ('scale=-2:720', '23'),
     _ => ('scale=-2:480', '26'),
   };
-  final vfArg = scale.isNotEmpty ? ['-vf', scale] : <String>[];
-
   final totalDurationSec = segments.fold<double>(
     0,
     (sum, s) => sum + (s.endSeconds - s.startSeconds),
@@ -61,9 +162,13 @@ Future<String> runConcatVideoExport({
 
   final commonArgs = [
     '-f', 'concat', '-safe', '0', '-i', concatPath,
-    '-c:v', 'libx264', '-crf', crf, '-preset', 'medium',
-    ...vfArg,
-    '-c:a', 'aac', '-b:a', '128k',
+    ...buildVideoEncodingArguments(
+      sourceColor: sourceColor,
+      crf: crfOverride?.toString() ?? defaultCrf,
+      preset: preset ?? 'medium',
+      audioBitrate: audioBitrate ?? 128,
+      scaleFilter: scale.isEmpty ? null : scale,
+    ),
     '-movflags', '+faststart',
     '-y', outputPath,
   ];

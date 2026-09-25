@@ -53,6 +53,49 @@ class DeleteSegmentEvent extends RoundClipEvent {
   List<Object?> get props => [segment];
 }
 
+class AdjustRoundBoundaryEvent extends RoundClipEvent {
+  final SegmentInfo segment;
+  final bool adjustStart;
+  final double deltaSeconds;
+
+  const AdjustRoundBoundaryEvent({
+    required this.segment,
+    required this.adjustStart,
+    required this.deltaSeconds,
+  });
+
+  @override
+  List<Object?> get props => [segment, adjustStart, deltaSeconds];
+}
+
+class ExpandRoundBoundariesEvent extends RoundClipEvent {
+  final double beforeSeconds;
+  final double afterSeconds;
+  final bool currentOnly;
+
+  const ExpandRoundBoundariesEvent({
+    required this.beforeSeconds,
+    required this.afterSeconds,
+    this.currentOnly = false,
+  });
+
+  @override
+  List<Object?> get props => [beforeSeconds, afterSeconds, currentOnly];
+}
+
+class DeleteShortRoundsEvent extends RoundClipEvent {
+  final double thresholdSeconds;
+
+  const DeleteShortRoundsEvent(this.thresholdSeconds);
+
+  @override
+  List<Object?> get props => [thresholdSeconds];
+}
+
+class UndoShortRoundDeletionEvent extends RoundClipEvent {
+  const UndoShortRoundDeletionEvent();
+}
+
 /// 更新视频记录事件
 class UpdateVideoRecordEvent extends RoundClipEvent {
   final EdittingVideoRecord videoRecord;

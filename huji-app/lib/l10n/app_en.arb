@@ -2683,6 +2683,19 @@
       }
     }
   },
+  "adjustRoundEnd": "End time",
+  "adjustRoundStart": "Start time",
+  "applyAllRounds": "Apply to all rounds",
+  "applyCurrentRound": "Apply to current round",
+  "afterRoundExpansion": "After each round (seconds)",
+  "batchProcess": "Batch process",
+  "beforeRoundExpansion": "Before each round (seconds)",
+  "deleteShortRounds": "Delete short rounds",
+  "expandRoundBoundaries": "Expand round boundaries",
+  "historyClips": "Clip history",
+  "shortRoundPreview": "Rounds to delete",
+  "shortRoundThreshold": "Delete rounds shorter than (seconds)",
+  "undoLastBatchDelete": "Undo last batch deletion",
   "@videoWaitingWithQueue": {
     "placeholders": {
       "count": {

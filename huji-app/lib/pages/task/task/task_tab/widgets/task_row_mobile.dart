@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:huji_app/l10n/l10n_extensions.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:huji_app/models/task.dart';
+import 'package:huji_app/models/video.dart';
+import 'package:huji_app/models/autoclip_models.dart';
+import 'package:huji_app/store/video.dart';
 import 'package:huji_app/store/task/task_manager.dart';
 import 'package:huji_app/pages/task/task/task_tab/bloc/task_tab_bloc.dart';
 import 'package:huji_app/pages/task/task/task_tab/bloc/task_tab_state.dart';
@@ -139,6 +142,17 @@ class TaskRowMobile extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (taskStatus == TaskStatusEnum.failed &&
+                taskForProgress.extraInfo?.isNotEmpty == true)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  taskForProgress.extraInfo!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: progressColor),
+                ),
+              ),
             ClipRRect(
               borderRadius: BorderRadius.circular(3),
               child: LinearProgressIndicator(
@@ -316,6 +330,8 @@ class TaskRowMobile extends StatelessWidget {
                               color: cs.mutedForeground,
                             ),
                           ),
+                          if (currentTask is VideoSegmentDetectTask)
+                            _TaskRoundCount(task: currentTask),
                           const SizedBox(height: 6),
                           _buildProgressSection(context, currentTask),
                         ],
@@ -341,6 +357,63 @@ class TaskRowMobile extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TaskRoundCount extends StatefulWidget {
+  final VideoSegmentDetectTask task;
+
+  const _TaskRoundCount({required this.task});
+
+  @override
+  State<_TaskRoundCount> createState() => _TaskRoundCountState();
+}
+
+class _TaskRoundCountState extends State<_TaskRoundCount> {
+  late Future<int?> _roundCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _roundCount = _loadRoundCount();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TaskRoundCount oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.task.edittingRecordId != oldWidget.task.edittingRecordId ||
+        widget.task.progress != oldWidget.task.progress ||
+        widget.task.status != oldWidget.task.status) {
+      _roundCount = _loadRoundCount();
+    }
+  }
+
+  Future<int?> _loadRoundCount() async {
+    final recordId = widget.task.edittingRecordId;
+    if (recordId == null || recordId.isEmpty) return null;
+    final record = await LocalVideoStorage().findById(recordId);
+    if (record is! EdittingVideoRecord) return null;
+    return record.allMatchSegments
+        .where((segment) => segment.actionType == ActionType.playBall)
+        .length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<int?>(
+      future: _roundCount,
+      builder: (context, snapshot) {
+        final count = snapshot.data;
+        if (count == null) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: Text(
+            context.hujiL10n.roundCountShort(count),
+            style: TextStyle(fontSize: 11, color: context.cs.mutedForeground),
           ),
         );
       },

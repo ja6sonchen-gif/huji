@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_ui/shared_ui.dart';
+import 'package:huji_app/config/product_mode.dart';
 import '../models/ffmpeg.dart';
 import '../api/api_manager.dart';
 import '../api/models/autoclip/permission_models.dart';
@@ -42,6 +43,17 @@ class _VideoExportQualityDialogState extends State<VideoExportQualityDialog> {
   }
 
   Future<void> _checkPermissions() async {
+    if (!ProductModeConfig.shouldCheckRemotePermissions(
+      ProductModeConfig.current,
+    )) {
+      if (mounted) {
+        setState(() {
+          _hasHighQualityPermission = true;
+          _isCheckingPermissions = false;
+        });
+      }
+      return;
+    }
     try {
       final highQualityPermission = await Api.permission.checkPermission(
         PermissionEnum.highQuality.code,

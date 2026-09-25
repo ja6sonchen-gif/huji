@@ -331,7 +331,7 @@ class _VideoEditConfigPageState extends State<VideoEditConfigPage> {
       id: taskId,
       total: (videoBaseInfo.duration * 1000).toInt(),
       edittingRecordId: edittingRecord.id,
-      name: context.hujiL10n.localVideoClip,
+      name: fileNameFromPath(rawRecord.filePath!),
       image: rawRecord.thumbnailPath,
       createdAt: DateTime.now().millisecondsSinceEpoch,
       videoPath: rawRecord.filePath!,
