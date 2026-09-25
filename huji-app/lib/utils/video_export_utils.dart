@@ -102,9 +102,10 @@ List<String> buildVideoEncodingArguments({
   String? scaleFilter,
 }) => [
   '-c:v', 'libx264',
-  // Preserve VFR/CFR frame timestamps; do not let the output muxer invent a
-  // constant cadence and duplicate or drop frames.
-  '-fps_mode:v', 'passthrough',
+  // FFmpeg 4.4 (used by CI and some FFmpegKit builds) predates -fps_mode.
+  // Legacy vsync=0 is its compatible passthrough equivalent: preserve input
+  // frame timestamps without creating a fixed cadence.
+  '-vsync', '0',
   '-crf', crf,
   '-preset', preset,
   if (scaleFilter != null && scaleFilter.isNotEmpty) ...['-vf', scaleFilter],
@@ -177,7 +178,7 @@ Future<String> runConcatVideoExport({
     'segmentCount=${segments.length}',
   );
   debugPrint(
-    '[VideoExport] outputCodec=libx264 fpsStrategy=passthrough '
+    '[VideoExport] outputCodec=libx264 fpsStrategy=passthrough(vsync=0) '
     'preset=${preset ?? "medium"} crf=${crfOverride ?? defaultCrf} '
     'audioBitrate=${audioBitrate ?? 128}k '
     'pixFmt=${sourceColor.pixelFormat ?? "encoder-default"}',

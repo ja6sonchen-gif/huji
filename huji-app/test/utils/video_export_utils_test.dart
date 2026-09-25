@@ -117,7 +117,7 @@ void main() {
         audioBitrate: 128,
       );
       expect(args, containsAll([
-        '-fps_mode:v', 'passthrough',
+        '-vsync', '0',
         '-pix_fmt', 'yuv420p',
         '-color_range', 'tv',
         '-colorspace', 'bt709',
