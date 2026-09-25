@@ -18,7 +18,7 @@ class DeletedRoundForUndo {
 /// 回合编辑页面状态
 class RoundClipState extends Equatable {
   final EdittingVideoRecord? videoRecord;
-  final SegmentInfo? currentPlayingSegment;
+  final int? selectedRoundIndex;
   final bool isSegmentPlaying;
   final List<VideoPlaybackItem> playbackItems;
   final bool isLoading;
@@ -30,7 +30,7 @@ class RoundClipState extends Equatable {
 
   const RoundClipState({
     this.videoRecord,
-    this.currentPlayingSegment,
+    this.selectedRoundIndex,
     this.isSegmentPlaying = false,
     this.playbackItems = const [],
     this.isLoading = false,
@@ -49,6 +49,16 @@ class RoundClipState extends Equatable {
     return videoRecord!.allMatchSegments
         .where((segment) => segment.actionType == ActionType.playBall)
         .toList();
+  }
+
+  /// The selected round is represented by its index in the canonical play-ball
+  /// list. Deriving the segment here keeps buttons, cards and playback aligned.
+  SegmentInfo? get currentPlayingSegment {
+    final index = selectedRoundIndex;
+    final segments = playBallSegments;
+    return index != null && index >= 0 && index < segments.length
+        ? segments[index]
+        : null;
   }
 
   /// 获取收藏的playBall片段
@@ -74,8 +84,8 @@ class RoundClipState extends Equatable {
   /// 复制状态
   RoundClipState copyWith({
     EdittingVideoRecord? videoRecord,
-    SegmentInfo? currentPlayingSegment,
-    bool clearCurrentPlayingSegment = false,
+    int? selectedRoundIndex,
+    bool clearSelectedRound = false,
     bool? isSegmentPlaying,
     List<VideoPlaybackItem>? playbackItems,
     bool? isLoading,
@@ -87,9 +97,9 @@ class RoundClipState extends Equatable {
   }) {
     return RoundClipState(
       videoRecord: videoRecord ?? this.videoRecord,
-      currentPlayingSegment: clearCurrentPlayingSegment
+      selectedRoundIndex: clearSelectedRound
           ? null
-          : (currentPlayingSegment ?? this.currentPlayingSegment),
+          : (selectedRoundIndex ?? this.selectedRoundIndex),
       isSegmentPlaying: isSegmentPlaying ?? this.isSegmentPlaying,
       playbackItems: playbackItems ?? this.playbackItems,
       isLoading: isLoading ?? this.isLoading,
@@ -104,7 +114,7 @@ class RoundClipState extends Equatable {
   @override
   List<Object?> get props => [
     videoRecord,
-    currentPlayingSegment,
+    selectedRoundIndex,
     isSegmentPlaying,
     playbackItems,
     isLoading,

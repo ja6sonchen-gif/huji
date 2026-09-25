@@ -13,11 +13,16 @@ abstract class MultiVideoPlayerEvent extends Equatable {
 class SetItemsEvent extends MultiVideoPlayerEvent {
   final List<VideoPlaybackItem> items;
   final bool isLooping;
+  final int? initialPositionMs;
 
-  const SetItemsEvent(this.items, {this.isLooping = false});
+  const SetItemsEvent(
+    this.items, {
+    this.isLooping = false,
+    this.initialPositionMs,
+  });
 
   @override
-  List<Object?> get props => [items, isLooping];
+  List<Object?> get props => [items, isLooping, initialPositionMs];
 }
 
 /// 播放事件

@@ -120,17 +120,24 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
   ) async {
     final record = state.videoRecord;
     if (record == null) return;
+    final playBallSegments = state.playBallSegments;
+    final selectedIndex = state.selectedRoundIndex ??
+        RoundSegmentTools.indexOfSegment(playBallSegments, event.segment);
+    if (selectedIndex < 0 || selectedIndex >= playBallSegments.length) {
+      return;
+    }
+    final selectedSegment = playBallSegments[selectedIndex];
     final updated = RoundSegmentTools.adjustBoundary(
-      event.segment,
+      selectedSegment,
       adjustStart: event.adjustStart,
       deltaSeconds: event.deltaSeconds,
       videoDurationSeconds: state.videoDurationSeconds,
     );
     final all = record.allMatchSegments.map((segment) {
-      return _sameSegment(segment, event.segment) ? updated : segment;
+      return _sameSegment(segment, selectedSegment) ? updated : segment;
     }).toList();
     final favorites = record.favoritesMatchSegments.map((segment) {
-      return _sameSegment(segment, event.segment) ? updated : segment;
+      return _sameSegment(segment, selectedSegment) ? updated : segment;
     }).toList();
     final updatedRecord = record.copyWith(
       allMatchSegments: all,
@@ -140,9 +147,15 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
       await _persistEdits(updatedRecord);
       emit(state.copyWith(
         videoRecord: updatedRecord,
-        currentPlayingSegment: updated,
+        selectedRoundIndex: selectedIndex,
       ));
-      add(const UpdatePlaybackItemsEvent());
+      final sourcePosition = _multiVideoPlayerBloc.state.currentVideoPositionMs;
+      add(UpdatePlaybackItemsEvent(
+        segmentToSeek: updated,
+        sourcePositionMs: event.adjustStart
+            ? (updated.startSeconds * 1000).round()
+            : sourcePosition,
+      ));
     } catch (e) {
       emit(state.copyWith(errorMessage: _l10n.saveSegmentFailedWithError('$e')));
     }
@@ -181,7 +194,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
       await _persistEdits(updatedRecord);
       emit(state.copyWith(
         videoRecord: updatedRecord,
-        clearCurrentPlayingSegment: true,
+        clearSelectedRound: true,
         isSegmentPlaying: false,
       ));
       add(const UpdatePlaybackItemsEvent());
@@ -230,7 +243,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
       emit(state.copyWith(
         videoRecord: updatedRecord,
         lastDeletedRounds: deleted,
-        clearCurrentPlayingSegment: true,
+        clearSelectedRound: true,
         isSegmentPlaying: false,
       ));
       add(const UpdatePlaybackItemsEvent());
@@ -289,10 +302,16 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
     SetCurrentPlayingSegmentEvent event,
     Emitter<RoundClipState> emit,
   ) {
+    final index = event.segment == null
+        ? null
+        : RoundSegmentTools.indexOfSegment(
+            state.playBallSegments,
+            event.segment!,
+          );
     emit(
       state.copyWith(
-        currentPlayingSegment: event.segment,
-        clearCurrentPlayingSegment: event.segment == null,
+        selectedRoundIndex: index,
+        clearSelectedRound: index == null,
         isSegmentPlaying: event.isPlaying,
       ),
     );
@@ -369,7 +388,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
         emit(
           state.copyWith(
             videoRecord: updatedRecord,
-            clearCurrentPlayingSegment: true,
+            clearSelectedRound: true,
             isSegmentPlaying: false,
           ),
         );
@@ -432,7 +451,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
 
       emit(
         state.copyWith(
-          currentPlayingSegment: event.segment,
+          selectedRoundIndex: segmentIndex,
           isSegmentPlaying: true,
           errorMessage: null,
         ),
@@ -453,7 +472,28 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
 
     try {
       final playbackItems = _createVideoPlaybackItems(state.videoRecord!);
-      _multiVideoPlayerBloc.add(SetItemsEvent(playbackItems));
+      int? initialPositionMs;
+      final target = event.segmentToSeek;
+      if (target != null) {
+        final segments = _extractPlayBallSegments(state.videoRecord!);
+        final targetIndex = RoundSegmentTools.indexOfSegment(segments, target);
+        if (targetIndex >= 0) {
+          var sequenceOffset = 0;
+          for (var index = 0; index < targetIndex; index++) {
+            sequenceOffset += playbackItems[index].durationMs;
+          }
+          final sourcePosition = event.sourcePositionMs ??
+              (target.startSeconds * 1000).round();
+          final localOffset = (sourcePosition -
+                  (target.startSeconds * 1000).round())
+              .clamp(0, playbackItems[targetIndex].durationMs - 1);
+          initialPositionMs = sequenceOffset + localOffset;
+        }
+      }
+      _multiVideoPlayerBloc.add(SetItemsEvent(
+        playbackItems,
+        initialPositionMs: initialPositionMs,
+      ));
       emit(state.copyWith(playbackItems: playbackItems));
     } catch (e) {
       emit(
@@ -616,16 +656,18 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
     if (correspondingSegment != null) {
       emit(
         state.copyWith(
-          currentPlayingSegment: correspondingSegment,
+          selectedRoundIndex: RoundSegmentTools.indexOfSegment(
+            state.playBallSegments,
+            correspondingSegment,
+          ),
           isSegmentPlaying: true,
         ),
       );
     } else {
       // 如果没有找到对应的片段，清空当前播放片段
-      emit(state.copyWith(
-        clearCurrentPlayingSegment: true,
-        isSegmentPlaying: false,
-      ));
+      // Gaps between rallies are not a selection change. Keep the last selected
+      // round so boundary controls remain attached to the user's target.
+      emit(state.copyWith(isSegmentPlaying: false));
     }
   }
 
@@ -652,7 +694,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
       emit(
         state.copyWith(
           videoRecord: updatedRecord,
-          clearCurrentPlayingSegment: true,
+          clearSelectedRound: true,
           isSegmentPlaying: false,
         ),
       );
@@ -757,7 +799,7 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
         state.copyWith(
           videoRecord: updatedRecord,
           // 只有在 isFlushState=true 时才清除播放状态
-          clearCurrentPlayingSegment: event.isFlushState,
+          clearSelectedRound: event.isFlushState,
           isSegmentPlaying: event.isFlushState ? false : state.isSegmentPlaying,
         ),
       );

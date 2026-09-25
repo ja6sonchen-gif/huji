@@ -30,6 +30,33 @@ void main() {
       expect(laterEnd.startSeconds, lessThan(laterEnd.endSeconds));
     });
 
+    test('keeps the selected seventh round stable and enforces 0.5s minimum', () {
+      final rounds = List.generate(9, (index) => segment(index * 10.0, index * 10.0 + 2));
+      final selected = rounds[6];
+      expect(RoundSegmentTools.indexOfSegment(rounds, selected), 6);
+
+      final adjusted = RoundSegmentTools.adjustBoundary(
+        selected,
+        adjustStart: true,
+        deltaSeconds: 0.5,
+        videoDurationSeconds: 100,
+      );
+      final replaced = List<SegmentInfo>.of(rounds)
+        ..[6] = adjusted;
+
+      expect(RoundSegmentTools.indexOfSegment(replaced, adjusted), 6);
+      expect(replaced.first, rounds.first);
+      expect(adjusted.startSeconds, 60.5);
+
+      final minimum = RoundSegmentTools.adjustBoundary(
+        segment(1, 1.5),
+        adjustStart: false,
+        deltaSeconds: -0.5,
+        videoDurationSeconds: 10,
+      );
+      expect(minimum.endSeconds - minimum.startSeconds, 0.5);
+    });
+
     test('clamps expanded boundaries to video duration', () {
       final result = RoundSegmentTools.expandAndMerge(
         segments: [segment(0.2, 9.8)],

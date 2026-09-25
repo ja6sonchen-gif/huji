@@ -9,7 +9,10 @@ class RemovedRoundEntry {
 
 /// Pure helpers shared by the round editor and export preparation.
 abstract final class RoundSegmentTools {
-  static const minimumDurationSeconds = 0.1;
+  static const minimumDurationSeconds = 0.5;
+
+  static int indexOfSegment(List<SegmentInfo> segments, SegmentInfo target) =>
+      segments.indexWhere((segment) => _sameSegment(segment, target));
 
   static SegmentInfo adjustBoundary(
     SegmentInfo segment, {

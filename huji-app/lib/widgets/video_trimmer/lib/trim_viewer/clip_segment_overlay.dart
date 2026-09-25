@@ -149,12 +149,13 @@ class _SegmentBorder extends StatelessWidget {
           onTap: () {
             if (!isSelected) {
               context.read<ClipSegmentBloc>().add(
-                ClipSegmentSelect(segment: segment),
+                ClipSegmentSelect(segment: segment, isScrollToSegment: true),
               );
             }
           },
           child: DecoratedBox(
             decoration: BoxDecoration(
+              color: isSelected ? Colors.white.withValues(alpha: 0.16) : null,
               border: Border.all(color: Colors.white, width: borderWidth),
             ),
           ),

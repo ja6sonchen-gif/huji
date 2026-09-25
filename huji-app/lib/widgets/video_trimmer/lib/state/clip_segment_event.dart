@@ -64,6 +64,10 @@ class ClipSegmentSelect extends ClipSegmentEvent {
   List<Object> get props => [segment, isScrollToSegment];
 }
 
+class ClipSegmentClearSelection extends ClipSegmentEvent {
+  const ClipSegmentClearSelection();
+}
+
 class ClipSegmentTranslateSelected extends ClipSegmentEvent {
   final int deltaTime;
 

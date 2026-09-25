@@ -197,6 +197,23 @@ class TrimmerEditor extends StatelessWidget {
             }
           },
         ),
+        BlocListener<TrimmerBloc, TrimmerState>(
+          listenWhen: (previous, current) =>
+              previous.currentMilliseconds != current.currentMilliseconds,
+          listener: (context, trimmerState) {
+            final clipBloc = context.read<ClipSegmentBloc>();
+            final timeMs = trimmerState.currentMilliseconds;
+            final segment = clipBloc.state.getActiveSegmentAt(timeMs);
+            final selected = clipBloc.state.selectedSegment;
+            if (segment == null) {
+              if (selected != null) {
+                clipBloc.add(const ClipSegmentClearSelection());
+              }
+            } else if (selected?.id != segment.id) {
+              clipBloc.add(ClipSegmentSelect(segment: segment));
+            }
+          },
+        ),
       ],
       child: BlocBuilder<TrimmerBloc, TrimmerState>(
         buildWhen: (previous, current) =>
@@ -387,9 +404,39 @@ class TrimmerEditor extends StatelessWidget {
       height: layout.segmentOverviewHeight,
       color: trimmerTheme.scaffoldBackground,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [Expanded(child: _SegmentOverviewStrip())],
+        children: [
+          Expanded(child: _SegmentOverviewStrip()),
+          const SizedBox(height: 3),
+          BlocBuilder<ClipSegmentBloc, ClipSegmentState>(
+            buildWhen: (previous, current) =>
+                previous.selectedSegment?.id != current.selectedSegment?.id,
+            builder: (context, state) {
+              final selected = state.selectedSegment;
+              final segments = state.activeSegments;
+              final index = selected == null
+                  ? -1
+                  : segments.indexWhere((segment) => segment.id == selected.id);
+              final label = selected == null || index < 0
+                  ? context.hujiL10n.selectRoundFromLeft
+                  : '${context.hujiL10n.currentEditingRound('${index + 1} / ${segments.length}')}  '
+                      '${formatTime(selected.startTime / 1000)} – '
+                      '${formatTime(selected.endTime / 1000)}';
+              return Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: selected == null
+                      ? trimmerTheme.onToolbarMuted
+                      : trimmerTheme.segmentSelectedBorder,
+                  fontWeight: FontWeight.w600,
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

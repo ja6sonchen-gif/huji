@@ -19,6 +19,11 @@ class ClipSegmentBloc extends Bloc<ClipSegmentEvent, ClipSegmentState> {
     on<ClipSegmentSplitAt>(_onSplitAt);
     on<ClipSegmentSelectById>(_onSelectById);
     on<ClipSegmentSelect>(_onSelect);
+    on<ClipSegmentClearSelection>((event, emit) {
+      if (state.selectedSegment != null) {
+        emit(state.copyWith(selectedSegment: null));
+      }
+    });
     on<ClipSegmentTranslateSelected>(_onTranslateSelected);
     on<ClipSegmentAddAt>(_onAddAt);
     on<ClipSegmentToggleFavorite>(_onToggleFavorite);

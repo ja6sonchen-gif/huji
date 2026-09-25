@@ -41,6 +41,27 @@ double _formatDurationSeconds(Map<String, dynamic> probe) {
   return double.parse((probe['format'] as Map<String, dynamic>)['duration'] as String);
 }
 
+double _parseRate(String value) {
+  final pieces = value.split('/');
+  if (pieces.length == 2) {
+    return (double.parse(pieces[0]) / double.parse(pieces[1]));
+  }
+  return double.parse(value);
+}
+
+Future<void> _createFrameRateFixture(String path, int fps) async {
+  final result = await Process.run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=$fps:duration=4',
+    '-f', 'lavfi', '-i', 'sine=frequency=1000:sample_rate=48000:duration=4',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '$fps',
+    '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-y', path,
+  ]);
+  if (result.exitCode != 0) {
+    throw StateError('ffmpeg fixture generation failed: ${result.stderr}');
+  }
+}
+
 int _videoHeight(Map<String, dynamic> probe) {
   final streams = (probe['streams'] as List).cast<Map<String, dynamic>>();
   final video = streams.firstWhere((s) => s['codec_type'] == 'video');
@@ -96,6 +117,7 @@ void main() {
         audioBitrate: 128,
       );
       expect(args, containsAll([
+        '-fps_mode:v', 'passthrough',
         '-pix_fmt', 'yuv420p',
         '-color_range', 'tv',
         '-colorspace', 'bt709',
@@ -221,6 +243,63 @@ void main() {
           greaterThanOrEqualTo(progressValues[i - 1]),
           reason: 'progress 不应回退（$i: ${progressValues[i - 1]} → ${progressValues[i]}）',
         );
+      }
+    });
+
+    test('preserves 30/60 fps and continuous multi-segment A/V timing',
+        timeout: const Timeout(Duration(minutes: 3)), () async {
+      if (!ffmpegAvailable) {
+        markTestSkipped('ffmpeg/ffprobe not on PATH');
+        return;
+      }
+
+      for (final fps in [30, 60]) {
+        final sourcePath = p.join(tempDir.path, 'source_${fps}fps.mp4');
+        final outputPath = p.join(tempDir.path, 'output_${fps}fps.mp4');
+        await _createFrameRateFixture(sourcePath, fps);
+        await runConcatVideoExport(
+          videoPath: sourcePath,
+          segments: [
+            SegmentInfo(actionType: ActionType.playBall, startSeconds: 0.5, endSeconds: 1.5),
+            SegmentInfo(actionType: ActionType.playBall, startSeconds: 2, endSeconds: 3),
+          ],
+          quality: VideoExportQualities.original,
+          outputPath: outputPath,
+        );
+
+        final probe = await _ffprobeJson(outputPath);
+        final streams = (probe['streams'] as List).cast<Map<String, dynamic>>();
+        final video = streams.firstWhere((s) => s['codec_type'] == 'video');
+        final audio = streams.firstWhere((s) => s['codec_type'] == 'audio');
+        expect(_parseRate(video['avg_frame_rate'] as String), closeTo(fps, 0.1));
+        expect(
+          (_formatDurationSeconds(probe) - 2).abs(),
+          lessThan(0.15),
+          reason: '$fps fps: concatenated duration should match selected ranges',
+        );
+        final audioDuration = double.tryParse(audio['duration']?.toString() ?? '') ??
+            _formatDurationSeconds(probe);
+        final videoDuration = double.tryParse(video['duration']?.toString() ?? '') ??
+            _formatDurationSeconds(probe);
+        expect((audioDuration - videoDuration).abs(), lessThan(0.12),
+          reason: '$fps fps: audio/video durations should stay synchronized',
+        );
+
+        final packetResult = await Process.run('ffprobe', [
+          '-v', 'error', '-select_streams', 'v:0',
+          '-show_entries', 'packet=pts_time', '-of', 'json', outputPath,
+        ]);
+        expect(packetResult.exitCode, 0);
+        final packetJson = json.decode(packetResult.stdout as String) as Map<String, dynamic>;
+        final pts = (packetJson['packets'] as List)
+            .cast<Map<String, dynamic>>()
+            .map((packet) => double.parse(packet['pts_time'] as String))
+            .toList();
+        expect(pts.length, greaterThan(fps));
+        for (var index = 1; index < pts.length; index++) {
+          expect(pts[index], greaterThan(pts[index - 1]));
+          expect(pts[index] - pts[index - 1], lessThan(2.5 / fps));
+        }
       }
     });
 

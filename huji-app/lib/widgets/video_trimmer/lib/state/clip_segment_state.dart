@@ -62,4 +62,14 @@ abstract class ClipSegmentState with _$ClipSegmentState {
       return null;
     }
   }
+
+  /// Returns the active round under the editor playhead, or null for a gap.
+  VideoClipSegment? getActiveSegmentAt(int timeMs) {
+    for (final segment in activeSegments) {
+      if (timeMs >= segment.startTime && timeMs <= segment.endTime) {
+        return segment;
+      }
+    }
+    return null;
+  }
 }

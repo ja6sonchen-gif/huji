@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:huji_app/models/autoclip_models.dart';
 import 'package:huji_app/services/ffmpeg/ffmpeg_runner.dart';
 import 'package:huji_app/services/platform_capability.dart';
@@ -29,7 +30,12 @@ class VideoColorMetadata {
       final json = jsonDecode(output) as Map<String, dynamic>;
       final streams = json['streams'] as List<dynamic>? ?? const [];
       if (streams.isEmpty) return const VideoColorMetadata();
-      final stream = streams.first as Map<String, dynamic>;
+      final stream = streams
+          .cast<Map<String, dynamic>>()
+          .firstWhere(
+            (candidate) => candidate['codec_type'] == 'video',
+            orElse: () => streams.first as Map<String, dynamic>,
+          );
       String? value(String key, Set<String> supported) {
         final candidate = stream[key]?.toString().toLowerCase();
         return candidate != null && supported.contains(candidate)
@@ -96,6 +102,9 @@ List<String> buildVideoEncodingArguments({
   String? scaleFilter,
 }) => [
   '-c:v', 'libx264',
+  // Preserve VFR/CFR frame timestamps; do not let the output muxer invent a
+  // constant cadence and duplicate or drop frames.
+  '-fps_mode:v', 'passthrough',
   '-crf', crf,
   '-preset', preset,
   if (scaleFilter != null && scaleFilter.isNotEmpty) ...['-vf', scaleFilter],
@@ -134,7 +143,10 @@ Future<String> runConcatVideoExport({
     throw Exception('No segments to export');
   }
 
-  final sourceColor = await probeVideoColorMetadata(videoPath);
+  final stopwatch = Stopwatch()..start();
+  final sourceProbe = await _probeExportStreams(videoPath);
+  final sourceColor = VideoColorMetadata.fromProbeJson(sourceProbe);
+  _logExportProbe('source', sourceProbe);
 
   await Directory(File(outputPath).parent.path).create(recursive: true);
 
@@ -157,6 +169,18 @@ Future<String> runConcatVideoExport({
   final totalDurationSec = segments.fold<double>(
     0,
     (sum, s) => sum + (s.endSeconds - s.startSeconds),
+  );
+  final inputDurationSec = _formatDurationFromProbe(sourceProbe);
+  debugPrint(
+    '[VideoExport] inputDuration=${inputDurationSec?.toStringAsFixed(3) ?? "unknown"}s '
+    'selectedDuration=${totalDurationSec.toStringAsFixed(3)}s '
+    'segmentCount=${segments.length}',
+  );
+  debugPrint(
+    '[VideoExport] outputCodec=libx264 fpsStrategy=passthrough '
+    'preset=${preset ?? "medium"} crf=${crfOverride ?? defaultCrf} '
+    'audioBitrate=${audioBitrate ?? 128}k '
+    'pixFmt=${sourceColor.pixelFormat ?? "encoder-default"}',
   );
   onProgress?.call(0);
 
@@ -196,6 +220,9 @@ Future<String> runConcatVideoExport({
               : result.output,
         );
       }
+      if (result.isSuccess) {
+        _logExportProbe('output', await _probeExportStreams(outputPath));
+      }
       onProgress?.call(1);
       return outputPath;
     }
@@ -229,6 +256,8 @@ Future<String> runConcatVideoExport({
       );
     }
 
+    _logExportProbe('output', await _probeExportStreams(outputPath));
+
     onProgress?.call(1);
     return outputPath;
   } catch (e) {
@@ -236,6 +265,74 @@ Future<String> runConcatVideoExport({
       await File(concatPath).delete();
     } catch (_) {}
     rethrow;
+  } finally {
+    stopwatch.stop();
+    debugPrint(
+      '[VideoExport] exportElapsed=${(stopwatch.elapsedMilliseconds / 1000).toStringAsFixed(3)}s '
+      'inputDuration=${inputDurationSec?.toStringAsFixed(3) ?? "unknown"}s '
+      'selectedDuration=${totalDurationSec.toStringAsFixed(3)}s '
+      'segmentCount=${segments.length}',
+    );
+  }
+}
+
+Future<String?> _probeExportStreams(String videoPath) async {
+  try {
+    final result = await FFmpegRunner.instance.executeProbe([
+      '-v', 'error',
+      '-show_format',
+      '-show_streams',
+      '-show_entries',
+      'format=duration,bit_rate,start_time:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,time_base,pix_fmt,color_range,color_space,color_primaries,color_transfer,bit_rate,duration,sample_rate,start_time',
+      '-of', 'json',
+      videoPath,
+    ]);
+    return result.isSuccess ? result.output : null;
+  } catch (error) {
+    debugPrint('[VideoExport] ffprobe failed for $videoPath: $error');
+    return null;
+  }
+}
+
+double? _formatDurationFromProbe(String? output) {
+  if (output == null || output.isEmpty) return null;
+  try {
+    final json = jsonDecode(output) as Map<String, dynamic>;
+    final format = json['format'] as Map<String, dynamic>?;
+    return double.tryParse(format?['duration']?.toString() ?? '');
+  } catch (_) {
+    return null;
+  }
+}
+
+void _logExportProbe(String label, String? output) {
+  if (output == null || output.isEmpty) {
+    debugPrint('[VideoExport] $label ffprobe unavailable');
+    return;
+  }
+  try {
+    final json = jsonDecode(output) as Map<String, dynamic>;
+    final format = json['format'] as Map<String, dynamic>? ?? const {};
+    final streams = (json['streams'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+    for (final stream in streams) {
+      debugPrint(
+        '[VideoExport] $label ${stream['codec_type']} '
+        'codec=${stream['codec_name']} size=${stream['width'] ?? '-'}x${stream['height'] ?? '-'} '
+        'avgFps=${stream['avg_frame_rate']} rFps=${stream['r_frame_rate']} '
+        'timeBase=${stream['time_base']} pixFmt=${stream['pix_fmt']} '
+        'color=${stream['color_range']}/${stream['color_space']}/'
+        '${stream['color_primaries']}/${stream['color_transfer']} '
+        'bitrate=${stream['bit_rate']} sampleRate=${stream['sample_rate']} '
+        'duration=${stream['duration']} start=${stream['start_time']}',
+      );
+    }
+    debugPrint(
+      '[VideoExport] $label format duration=${format['duration']} '
+      'bitrate=${format['bit_rate']} start=${format['start_time']}',
+    );
+  } catch (error) {
+    debugPrint('[VideoExport] $label ffprobe parse failed: $error');
   }
 }
 

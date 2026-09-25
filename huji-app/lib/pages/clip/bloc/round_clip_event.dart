@@ -118,7 +118,13 @@ class PlaySegmentEvent extends RoundClipEvent {
 
 /// 更新播放项列表事件
 class UpdatePlaybackItemsEvent extends RoundClipEvent {
-  const UpdatePlaybackItemsEvent();
+  final SegmentInfo? segmentToSeek;
+  final int? sourcePositionMs;
+
+  const UpdatePlaybackItemsEvent({this.segmentToSeek, this.sourcePositionMs});
+
+  @override
+  List<Object?> get props => [segmentToSeek, sourcePositionMs];
 }
 
 /// 切换当前播放片段收藏状态事件

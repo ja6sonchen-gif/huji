@@ -111,12 +111,12 @@ class MultiVideoPlayerBloc
             isLoading: true,
             items: event.items,
             isLooping: event.isLooping,
-            currentTimeMs: 0,
+            currentTimeMs: event.initialPositionMs ?? 0,
             currentVideoController: null,
           ),
         );
 
-        await _seekTo(emit, 0);
+        await _seekTo(emit, event.initialPositionMs ?? 0);
 
         // 控制器就绪（或确认没有可播放项）后才结束加载态
         emit(state.copyWith(isLoading: false));
