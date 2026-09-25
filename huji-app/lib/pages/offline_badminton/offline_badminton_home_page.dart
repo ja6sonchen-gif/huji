@@ -8,6 +8,7 @@ import 'package:huji_app/api/models/autoclip/video_models.dart';
 import 'package:huji_app/l10n/l10n_extensions.dart';
 import 'package:huji_app/pages/clip/types.dart';
 import 'package:huji_app/router/modules/clip.dart';
+import 'package:huji_app/router/modules/main.dart';
 import 'package:huji_app/store/video.dart';
 import 'package:huji_app/theme/themed_mobile.dart';
 import 'package:huji_app/widgets/file_picker/file_selection_page.dart';
