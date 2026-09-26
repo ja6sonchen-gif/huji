@@ -51,13 +51,13 @@ void main() {
 
     router.go('/');
     expect(
-      router.routeInformationProvider.value.uri.path,
+      router.routerDelegate.currentConfiguration.uri.path,
       OfflineBadmintonRoute.home,
     );
 
     router.go(MainRoute.mainHome);
     expect(
-      router.routeInformationProvider.value.uri.path,
+      router.routerDelegate.currentConfiguration.uri.path,
       OfflineBadmintonRoute.home,
     );
   });
