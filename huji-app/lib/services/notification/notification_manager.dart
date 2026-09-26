@@ -8,6 +8,7 @@ import 'package:huji_app/config/product_mode.dart';
 import 'package:huji_app/router/app_router.dart';
 import 'package:huji_app/router/modules/main.dart';
 import 'package:huji_app/services/notification/task_notification_service.dart';
+import 'package:huji_app/services/notification/task_notification_policy.dart';
 import 'package:huji_app/settings/settings_manager.dart';
 
 abstract class NotificationService<T> {
@@ -19,6 +20,8 @@ abstract class NotificationService<T> {
 class NotificationManager implements NotificationService<dynamic> {
   late final Map<Type, NotificationService> _services;
   late final FlutterLocalNotificationsPlugin _notifications;
+  final TaskNotificationPolicy _taskNotificationPolicy =
+      TaskNotificationPolicy();
 
   static final NotificationManager _instance = NotificationManager._internal();
 
@@ -39,25 +42,31 @@ class NotificationManager implements NotificationService<dynamic> {
 
   @override
   Future<void> showOrUpdateTaskNotification(dynamic params) async {
-    if (!SettingsManager.to.notifications) {
-      return;
-    }
-    if (!await checkNotificationPermission()) {
-      AppLogger().e(
-        'Notification permission not granted, cannot show notification',
-        StackTrace.current,
-      );
-      return;
-    }
-    final service = _services[params.runtimeType];
-    if (service == null) {
-      AppLogger().w(
-        'No notification service registered for ${params.runtimeType}',
-        StackTrace.current,
-      );
-      return;
-    }
-    service.showOrUpdateTaskNotification(params);
+    if (params is! Task) return;
+    await _taskNotificationPolicy.dispatch(
+      params,
+      windowsOfflineBadminton:
+          Platform.isWindows && ProductModeConfig.isOfflineBadminton,
+      notify: (task) async {
+        if (!SettingsManager.to.notifications) return;
+        if (!await checkNotificationPermission()) {
+          AppLogger().e(
+            'Notification permission not granted, cannot show notification',
+            StackTrace.current,
+          );
+          return;
+        }
+        final service = _services[task.runtimeType];
+        if (service == null) {
+          AppLogger().w(
+            'No notification service registered for ${task.runtimeType}',
+            StackTrace.current,
+          );
+          return;
+        }
+        await service.showOrUpdateTaskNotification(task);
+      },
+    );
   }
 
   Future<void> initialize() async {
@@ -161,3 +170,4 @@ class NotificationManager implements NotificationService<dynamic> {
     _services[params.runtimeType]!.cancelTaskNotification(params);
   }
 }
+

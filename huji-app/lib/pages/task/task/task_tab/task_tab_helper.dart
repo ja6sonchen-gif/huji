@@ -20,6 +20,7 @@ import 'package:huji_app/l10n/l10n_extensions.dart';
 import 'package:huji_app/theme/themed_mobile.dart';
 import 'package:huji_app/pages/task/task/task_tab/task_tab_list_utils.dart';
 import 'package:huji_app/router/modules/desktop.dart';
+import 'package:huji_app/router/modules/clip.dart';
 import 'package:huji_app/widgets/feature_stub_actions.dart';
 import 'package:shared_ui/shared_ui.dart';
 
@@ -501,7 +502,7 @@ Future<void> handleTaskTap(BuildContext context, Task task) async {
 
     // Desktop uses the preview/export shell (same as video library cards).
     if (PlatformCapability.isDesktop) {
-      context.go(DesktopRoutes.clipPreviewPath(recordId));
+      context.go(ClipRoute.clipPreviewPath(recordId));
       return true;
     }
 
@@ -570,3 +571,4 @@ Future<void> handleTaskTap(BuildContext context, Task task) async {
     }
   }
 }
+

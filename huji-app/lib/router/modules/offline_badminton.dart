@@ -7,11 +7,17 @@ import 'package:huji_app/router/types.dart';
 import 'package:huji_app/store/task/clip_task_prompt_store.dart';
 
 class OfflineBadmintonRoute implements RouteModule {
+  static const String root = '/';
   static const String home = '/offline-badminton';
 
   @override
   List<GoRoute> getRoutes() {
     return [
+      GoRoute(
+        path: root,
+        name: 'offlineBadmintonRoot',
+        redirect: (context, state) => home,
+      ),
       GoRoute(
         path: home,
         name: 'offlineBadmintonHome',
@@ -35,3 +41,4 @@ class OfflineBadmintonRoute implements RouteModule {
     ];
   }
 }
+

@@ -9,6 +9,7 @@ import 'package:huji_app/pages/desktop/desktop_tasks_page.dart';
 import 'package:huji_app/pages/desktop/desktop_settings_page.dart';
 import 'package:huji_app/pages/login/login_page.dart';
 import 'package:huji_app/router/modules/message.dart';
+import 'package:huji_app/router/modules/clip.dart';
 import 'package:huji_app/router/modules/profile.dart';
 import 'package:huji_app/router/modules/subscription.dart';
 import 'package:huji_app/router/modules/tools.dart';
@@ -27,14 +28,14 @@ class DesktopRoutes {
   static const String workspace = '/workspace';
   static const String clipNew = '/clip/new';
   static const String videoCompress = ToolsRoute.videoCompress;
-  static const String clipPreview = '/clip/:id/preview';
+  static const String clipPreview = ClipRoute.clipPreview;
   static const String clipEdit = '/clip/:id/edit';
   static const String videoPlayer = '/video/player';
   static const String tasks = '/tasks';
   static const String settings = '/settings';
 
   static String clipPreviewPath(String clipId) =>
-      '/clip/${Uri.encodeComponent(clipId)}/preview';
+      ClipRoute.clipPreviewPath(clipId);
 
   static String clipEditPath(String clipId) =>
       '/clip/${Uri.encodeComponent(clipId)}/edit';
@@ -307,3 +308,4 @@ class DesktopRoutes {
     ];
   }
 }
+

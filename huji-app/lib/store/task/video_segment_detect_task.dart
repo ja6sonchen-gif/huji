@@ -151,10 +151,9 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
       final edittingRecordId = task.edittingRecordId!;
       final record = await LocalVideoStorage().findById(edittingRecordId);
       if (record == null || record is! EdittingVideoRecord) {
-        AppLogger().w(
+        throw StateError(
           'EdittingVideoRecord not found for id: $edittingRecordId',
         );
-        return;
       }
       final edittingRecord = record;
 
@@ -683,3 +682,4 @@ class VideoSegmentDetectTaskManager extends AbstractTaskManager {
     return realtimeDetectTask.copyWith();
   }
 }
+

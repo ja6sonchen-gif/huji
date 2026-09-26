@@ -14,6 +14,7 @@ import 'package:huji_app/l10n/l10n_extensions.dart';
 import 'package:huji_app/services/platform_capability.dart';
 import 'package:huji_app/utils/desktop_style.dart';
 import 'package:huji_app/router/modules/desktop.dart';
+import 'package:huji_app/router/modules/clip.dart';
 import 'package:shared_ui/shared_ui.dart';
 
 class VideoClipProgressDialog extends StatefulWidget {
@@ -301,7 +302,7 @@ class _VideoClipProgressDialogState extends State<VideoClipProgressDialog> {
                                       // 桌面端跳预览/导出页，与任务列表点击行为一致。
                                       if (PlatformCapability.isDesktop) {
                                         context.go(
-                                          DesktopRoutes.clipPreviewPath(
+                                          ClipRoute.clipPreviewPath(
                                             edittingRecord.id,
                                           ),
                                         );
@@ -357,3 +358,4 @@ class _VideoClipProgressDialogState extends State<VideoClipProgressDialog> {
     );
   }
 }
+
