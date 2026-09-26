@@ -1,11 +1,16 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:huji_app/constants/theme.dart';
 import 'package:huji_app/config/product_mode.dart';
+import 'package:huji_app/l10n/huji_localizations_setup.dart';
 import 'package:huji_app/main_desktop.dart';
+import 'package:huji_app/pages/offline_badminton/offline_badminton_home_page.dart';
 import 'package:huji_app/router/modules/clip.dart';
 import 'package:huji_app/router/modules/main.dart';
 import 'package:huji_app/router/modules/offline_badminton.dart';
 import 'package:huji_app/router/modules/routes.dart';
+import 'package:shared_ui/shared_ui.dart';
 
 List<String> collectGoRoutePaths(List<RouteBase> routes) {
   final paths = <String>[];
@@ -39,27 +44,42 @@ void main() {
     );
   });
 
-  test('Windows offline router resolves root to the badminton home', () {
+  testWidgets('Windows offline router resolves root to the badminton home', (
+    tester,
+  ) async {
     final router = DesktopApp.createRouter(
       productMode: ProductMode.offlineBadminton,
     );
     addTearDown(router.dispose);
+
+    final theme = AppTheme.lightTheme;
+    await tester.pumpWidget(
+      MaterialApp.router(
+        routerConfig: router,
+        theme: theme,
+        locale: const Locale('zh'),
+        localizationsDelegates: HujiLocalizationsSetup.localizationsDelegates,
+        supportedLocales: HujiLocalizationsSetup.supportedLocales,
+        builder: (context, child) => TpTheme(
+          data: TpThemeData.fromColorScheme(theme.colorScheme, scale: 1.0),
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(OfflineBadmintonHomePage), findsOneWidget);
 
     final paths = collectGoRoutePaths(router.configuration.routes);
     expect(paths, contains('/'));
     expect(router.namedLocation('offlineBadmintonRoot'), '/');
 
     router.go('/');
-    expect(
-      router.routerDelegate.currentConfiguration.uri.path,
-      OfflineBadmintonRoute.home,
-    );
+    await tester.pumpAndSettle();
+    expect(find.byType(OfflineBadmintonHomePage), findsOneWidget);
 
     router.go(MainRoute.mainHome);
-    expect(
-      router.routerDelegate.currentConfiguration.uri.path,
-      OfflineBadmintonRoute.home,
-    );
+    await tester.pumpAndSettle();
+    expect(find.byType(OfflineBadmintonHomePage), findsOneWidget);
   });
 
   test(
