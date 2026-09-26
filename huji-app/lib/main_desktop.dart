@@ -6,6 +6,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:huji_app/l10n/app_localizations.dart';
 import 'package:huji_app/l10n/huji_localizations_setup.dart';
 import 'package:go_router/go_router.dart';
+import 'package:huji_app/config/product_mode.dart';
+import 'package:huji_app/router/modules/offline_badminton.dart';
+import 'package:huji_app/router/modules/routes.dart';
 import 'package:huji_app/router/modules/desktop.dart';
 import 'package:huji_app/services/notification/notification_manager.dart';
 import 'package:huji_app/services/platform_capability.dart';
@@ -42,6 +45,23 @@ class DesktopApp extends StatefulWidget {
   final AppearanceCubit appearanceCubit;
   final ShortcutsCubit shortcutsCubit;
 
+  /// Builds the desktop route table for the selected product mode.
+  /// Kept public so platform-entry behavior can be regression-tested.
+  static GoRouter createRouter({ProductMode? productMode}) {
+    final mode = productMode ?? ProductModeConfig.current;
+    final offlineBadminton = mode == ProductMode.offlineBadminton;
+    return GoRouter(
+      initialLocation: offlineBadminton ? OfflineBadmintonRoute.home : '/',
+      routes: offlineBadminton
+          ? AppPages.getRoutes(productMode: mode)
+          : DesktopRoutes.getRoutes(),
+      // Workspace redirects are a feature of the standard desktop shell;
+      // offline badminton uses the same route table as the mobile product.
+      redirect: offlineBadminton ? null : DesktopRoutes.workspaceRedirect,
+      errorBuilder: (context, state) => DesktopErrorPage(state.error),
+    );
+  }
+
   @override
   State<DesktopApp> createState() => _DesktopAppState();
 }
@@ -55,23 +75,14 @@ class _DesktopAppState extends State<DesktopApp> {
   @override
   void initState() {
     super.initState();
-    _router = GoRouter(
-      initialLocation: '/',
-      routes: DesktopRoutes.getRoutes(),
-      // Router-level redirect: legacy paths like /video/player match no
-      // route in the desktop table, so a route-level redirect would never
-      // fire — the router redirect is consulted for every navigation. It
-      // also OPENS the corresponding workspace tab as a side effect (see
-      // DesktopRoutes.workspaceRedirect).
-      redirect: DesktopRoutes.workspaceRedirect,
-      errorBuilder: (context, state) => DesktopErrorPage(state.error),
-    );
+    _router = DesktopApp.createRouter();
     _disposeCommands = registerDesktopNavigationCommands(
       _commandBus,
       go: _router.go,
       canPop: _router.canPop,
       pop: _router.pop,
       showCheatsheet: _showCheatsheet,
+      offlineBadminton: ProductModeConfig.isOfflineBadminton,
     );
     // TaskStorage / LocalVideoStorage are already initialized in postInit().
     NotificationManager().initialize();

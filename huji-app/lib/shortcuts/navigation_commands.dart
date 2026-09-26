@@ -1,4 +1,6 @@
 import 'package:huji_app/router/modules/desktop.dart';
+import 'package:huji_app/router/modules/main.dart';
+import 'package:huji_app/router/modules/offline_badminton.dart';
 import 'package:huji_app/shortcuts/command_bus.dart';
 import 'package:huji_app/shortcuts/command_ids.dart';
 
@@ -13,15 +15,22 @@ void Function() registerDesktopNavigationCommands(
   required bool Function() canPop,
   required void Function([Object? result]) pop,
   required void Function() showCheatsheet,
+  bool offlineBadminton = false,
 }) {
-  void newClip() => go(DesktopRoutes.clipNew);
-  void openTasks() => go(DesktopRoutes.tasks);
-  void openSettings() => go(DesktopRoutes.settings);
+  void newClip() => go(
+    offlineBadminton ? OfflineBadmintonRoute.home : DesktopRoutes.clipNew,
+  );
+  void openTasks() => go(
+    offlineBadminton ? MainRoute.mainTask : DesktopRoutes.tasks,
+  );
+  void openSettings() {
+    if (!offlineBadminton) go(DesktopRoutes.settings);
+  }
   void closeOrBack() {
     if (canPop()) {
       pop();
     } else {
-      go('/');
+      go(offlineBadminton ? OfflineBadmintonRoute.home : '/');
     }
   }
 

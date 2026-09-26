@@ -102,6 +102,80 @@ jobs:
       - name: Unit and widget tests
         run: flutter test --exclude-tags integration
 
+      - name: Patch FFmpegKit Windows headers for native build
+        if: matrix.platform == 'windows'
+        run: ./scripts/patch_ffmpeg_kit_windows.ps1
+
+      - name: Clean Windows build dependencies
+        if: matrix.platform == 'windows'
+        run: flutter clean
+
+      - name: Resolve Flutter packages for Windows build
+        if: matrix.platform == 'windows'
+        run: flutter pub get
+
+      - name: Build Windows offline badminton app
+        if: matrix.platform == 'windows'
+        run: flutter build windows --release
+
+      - name: Bundle static Windows FFmpeg binaries
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: bash ./scripts/bundle_ffmpeg_windows.sh build/windows/x64/runner/Release
+
+      - name: Verify Windows app bundle contents
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $PWD 'build/windows/x64/runner/Release'
+          $requiredFiles = @(
+            'huji.exe',
+            'flutter_windows.dll',
+            'ffmpeg.exe',
+            'ffprobe.exe',
+            'ncnn_plugin.dll',
+            'ncnn.dll',
+            'ncnn_helper.exe',
+            'media_kit_video_plugin.dll',
+            'media_kit_libs_windows_video_plugin.dll',
+            'libmpv-2.dll',
+            'd3dcompiler_47.dll',
+            'libEGL.dll',
+            'libGLESv2.dll',
+            'vk_swiftshader.dll',
+            'vulkan-1.dll',
+            'zlib.dll',
+            'data/icudtl.dat'
+          )
+          foreach ($relativePath in $requiredFiles) {
+            $candidate = Join-Path $bundle $relativePath
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+              throw "Windows bundle is missing required runtime file: $relativePath"
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $bundle 'data/flutter_assets') -PathType Container)) {
+            throw 'Windows bundle is missing Flutter assets.'
+          }
+
+      - name: Smoke test Windows ncnn GPU probe and CPU fallback
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $app = Join-Path $PWD 'build/windows/x64/runner/Release/huji.exe'
+          & $app --ncnn-selftest
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows ncnn self-test failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Upload Windows offline badminton app
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: huji-offline-badminton-windows
+          path: huji-app/build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Install ffmpeg (Linux integration tests)
         if: matrix.platform == 'linux'
         run: sudo apt-get install -y ffmpeg

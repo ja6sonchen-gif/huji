@@ -26,6 +26,7 @@ class VideoSaveProgressDialog extends StatefulWidget {
   final VideoCompressQuality? quality;
   final SportType? sportType;
   final VideoProcessType? videoProcessType;
+  final String? outputDirectory;
 
   const VideoSaveProgressDialog({
     super.key,
@@ -35,6 +36,7 @@ class VideoSaveProgressDialog extends StatefulWidget {
     this.quality,
     this.sportType,
     this.videoProcessType,
+    this.outputDirectory,
   });
 
   @override
@@ -68,8 +70,13 @@ class _VideoSaveProgressDialogState extends State<VideoSaveProgressDialog> {
       });
 
       // 获取保存目录
-      final downloadsDir = await path_utils.getDownloadsDirectory();
-      final videoDir = path.join(downloadsDir.path, 'Videos');
+      final String videoDir;
+      if (widget.outputDirectory != null) {
+        videoDir = widget.outputDirectory!;
+      } else {
+        final downloadsDir = await path_utils.getDownloadsDirectory();
+        videoDir = path.join(downloadsDir.path, 'Videos');
+      }
       await Directory(videoDir).create(recursive: true);
 
       // 生成文件名（简化格式以便相册识别）

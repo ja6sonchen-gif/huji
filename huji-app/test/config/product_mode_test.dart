@@ -10,7 +10,25 @@ void main() {
       );
     });
 
-    test('non-Android defaults to standard mode', () {
+    test('Windows defaults to offline badminton', () {
+      expect(
+        ProductModeConfig.resolve(isAndroid: false, isWindows: true),
+        ProductMode.offlineBadminton,
+      );
+    });
+
+    test('Windows accepts an explicit offline badminton mode', () {
+      expect(
+        ProductModeConfig.resolve(
+          isAndroid: false,
+          isWindows: true,
+          configuredMode: 'offlineBadminton',
+        ),
+        ProductMode.offlineBadminton,
+      );
+    });
+
+    test('other non-Android platforms default to standard mode', () {
       expect(
         ProductModeConfig.resolve(isAndroid: false),
         ProductMode.standard,
@@ -21,6 +39,17 @@ void main() {
       expect(
         ProductModeConfig.resolve(
           isAndroid: true,
+          configuredMode: 'standard',
+        ),
+        ProductMode.standard,
+      );
+    });
+
+    test('Windows can explicitly opt into standard mode', () {
+      expect(
+        ProductModeConfig.resolve(
+          isAndroid: false,
+          isWindows: true,
           configuredMode: 'standard',
         ),
         ProductMode.standard,

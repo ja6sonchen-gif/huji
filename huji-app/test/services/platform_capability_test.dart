@@ -23,5 +23,22 @@ void main() {
       expect(PlatformCapability.supportsCloudDetection, isTrue);
       expect(PlatformCapability.supportsFFmpegKit, isTrue);
     });
+
+    test('Windows uses the desktop FFmpeg runner', () {
+      if (!Platform.isWindows) return; // skip on other platforms
+      expect(PlatformCapability.supportsLocalDetection, isTrue);
+      expect(PlatformCapability.supportsFFmpegKit, isFalse);
+    });
+
+    test('FFmpegKit is never selected for a Windows release build', () {
+      expect(
+        PlatformCapability.shouldUseFFmpegKit(
+          isLinux: false,
+          isWindows: true,
+          isTest: false,
+        ),
+        isFalse,
+      );
+    });
   });
 }

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 /// Centralized feature flags by platform.
 ///
 /// Use these instead of scattering `Platform.isAndroid` checks throughout
@@ -24,20 +26,26 @@ class PlatformCapability {
   /// Long-running background service (workmanager + flutter_background_service).
   static bool get supportsBackgroundService => Platform.isAndroid || Platform.isIOS;
 
-  /// FFmpegKit Flutter plugin (all platforms except Linux). Windows/macOS
-  /// have the native layer bundled since ffmpeg_kit_flutter_new 4.6.2 —
-  /// running detection through FFmpegKit removes the dependency on a
-  /// system `ffmpeg` binary (release users don't have one on PATH; this
-  /// was the macOS fix in 4692d68 and now applies to Windows too).
-  /// Linux keeps the bundled static binary via DesktopFFmpegRunner.
+  /// FFmpegKit Flutter plugin (Android, iOS and macOS). Windows and Linux
+  /// use the bundled FFmpeg executable through the desktop runner.
   ///
   /// Test VM (`flutter test`): reports false — the test VM has no
   /// FFmpegKit platform channel, so the PATH-ffmpeg fallback keeps
   /// desktop integration tests working with a plain `ffmpeg` binary (same
   /// convention as GpuDeviceSelector's FLUTTER_TEST probe guard).
-  static bool get supportsFFmpegKit =>
-      !Platform.isLinux &&
-      Platform.environment['FLUTTER_TEST'] != 'true';
+  static bool get supportsFFmpegKit => shouldUseFFmpegKit(
+    isLinux: Platform.isLinux,
+    isWindows: Platform.isWindows,
+    isTest: Platform.environment['FLUTTER_TEST'] == 'true',
+  );
+
+  @visibleForTesting
+  static bool shouldUseFFmpegKit({
+    required bool isLinux,
+    required bool isWindows,
+    required bool isTest,
+  }) =>
+      !isLinux && !isWindows && !isTest;
 
   /// Native video trimmer plugin (Android/iOS). Desktop falls back to ffmpeg.
   static bool get supportsNativeTrimmer => Platform.isAndroid || Platform.isIOS;

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
 import 'package:go_router/go_router.dart';
 import 'package:huji_app/api/models/autoclip/permission_models.dart';
@@ -13,6 +14,7 @@ import 'package:huji_app/widgets/multi_video_player/bloc/multi_video_player_even
 import 'package:huji_app/widgets/video_trimmer/lib/managers/video_clip_segment.dart';
 import 'package:huji_app/widgets/video_trimmer/trimmer_view.dart';
 import 'package:uuid/uuid.dart';
+import 'package:path/path.dart' as p;
 
 import '../../api/api_manager.dart';
 import '../../models/autoclip_models.dart';
@@ -1497,6 +1499,15 @@ class _RoundClipPageState extends State<RoundClipPage>
       return;
     }
 
+    String? outputDirectory;
+    if (Platform.isWindows) {
+      outputDirectory = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: l10n.appTitle,
+        lockParentWindow: true,
+      );
+      if (!mounted || outputDirectory == null) return;
+    }
+
     // 显示保存进度对话框
     if (mounted) {
       showTpDialog(
@@ -1505,13 +1516,10 @@ class _RoundClipPageState extends State<RoundClipPage>
         builder: (context) => VideoSaveProgressDialog(
           videoPath: sourcePath,
           segments: segmentsToSave,
-          fileName: state.videoRecord!.filePath!
-              .split('/')
-              .last
-              .split('.')
-              .first,
+          fileName: p.basenameWithoutExtension(sourcePath),
           quality: selectedQuality,
           sportType: state.videoRecord!.sportType,
+          outputDirectory: outputDirectory,
         ),
       );
     }

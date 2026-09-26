@@ -4,8 +4,9 @@ enum ProductMode { standard, offlineBadminton }
 
 /// Selects the product surface without removing any standard/cloud modules.
 ///
-/// Android defaults to the offline badminton experience. Builds can still opt
-/// into the standard product with `--dart-define=HUJI_PRODUCT_MODE=standard`.
+/// Android and Windows default to the offline badminton experience. Builds
+/// can still opt into the standard product with
+/// `--dart-define=HUJI_PRODUCT_MODE=standard`.
 class ProductModeConfig {
   ProductModeConfig._();
 
@@ -15,23 +16,28 @@ class ProductModeConfig {
 
   static ProductMode resolve({
     required bool isAndroid,
+    bool isWindows = false,
     String configuredMode = _configuredMode,
   }) {
+    final supportsOfflineBadminton = isAndroid || isWindows;
     switch (configuredMode) {
       case 'offlineBadminton':
-        return isAndroid
+        return supportsOfflineBadminton
             ? ProductMode.offlineBadminton
             : ProductMode.standard;
       case 'standard':
         return ProductMode.standard;
       default:
-        return isAndroid
+        return supportsOfflineBadminton
             ? ProductMode.offlineBadminton
             : ProductMode.standard;
     }
   }
 
-  static ProductMode get current => resolve(isAndroid: Platform.isAndroid);
+  static ProductMode get current => resolve(
+    isAndroid: Platform.isAndroid,
+    isWindows: Platform.isWindows,
+  );
 
   static bool get isOfflineBadminton =>
       current == ProductMode.offlineBadminton;
