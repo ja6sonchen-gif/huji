@@ -162,9 +162,30 @@ jobs:
         shell: pwsh
         run: |
           $app = Join-Path $PWD 'build/windows/x64/runner/Release/huji.exe'
-          & $app --ncnn-selftest
-          if ($LASTEXITCODE -ne 0) {
-            throw "Windows ncnn self-test failed with exit code $LASTEXITCODE"
+          $stdoutPath = Join-Path $env:RUNNER_TEMP 'ncnn-selftest.stdout.log'
+          $stderrPath = Join-Path $env:RUNNER_TEMP 'ncnn-selftest.stderr.log'
+          $process = Start-Process `
+            -FilePath $app `
+            -ArgumentList @('--ncnn-selftest') `
+            -Wait `
+            -PassThru `
+            -NoNewWindow `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath
+          $selfTestExitCode = $process.ExitCode
+
+          if (Test-Path -LiteralPath $stdoutPath) {
+            Get-Content -LiteralPath $stdoutPath
+          }
+          if (Test-Path -LiteralPath $stderrPath) {
+            Get-Content -LiteralPath $stderrPath | ForEach-Object { Write-Host $_ }
+          }
+
+          if ($null -eq $selfTestExitCode) {
+            throw 'Windows ncnn self-test did not produce a valid process exit code.'
+          }
+          if ($selfTestExitCode -ne 0) {
+            throw "Windows ncnn self-test failed with exit code $selfTestExitCode"
           }
 
       - name: Upload Windows offline badminton app
