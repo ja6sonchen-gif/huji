@@ -479,11 +479,13 @@ class _RoundClipPageState extends State<RoundClipPage>
 
   void _showDeleteShortRoundsDialog() {
     var threshold = RoundSegmentTools.defaultShortRoundThresholdSeconds;
+    var didPreview = false;
     showTpDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           final l10n = context.hujiL10n;
+          final isWindows = Platform.isWindows;
           final count = RoundSegmentTools.shortRoundDeleteCount(
             _roundClipBloc.state.playBallSegments,
             threshold,
@@ -506,7 +508,8 @@ class _RoundClipPageState extends State<RoundClipPage>
                     didPreview = false;
                   }),
                 ),
-                Text('${l10n.shortRoundPreview}: $count'),
+                if (isWindows || didPreview)
+                  Text('${l10n.shortRoundPreview}: $count'),
               ],
             ),
             actions: [
@@ -514,10 +517,16 @@ class _RoundClipPageState extends State<RoundClipPage>
                 onPressed: () => Navigator.of(dialogContext).pop(),
                 child: Text(l10n.taskStatusCancelledShort),
               ),
+              TextButton(
+                onPressed: () => setDialogState(() => didPreview = true),
+                child: Text(l10n.previewTitle),
+              ),
               FilledButton(
-                onPressed: RoundSegmentTools.canConfirmShortRoundDeletion(
+                onPressed: RoundSegmentTools.shouldEnableShortRoundDeleteConfirm(
                       _roundClipBloc.state.playBallSegments,
                       threshold,
+                      isWindows: isWindows,
+                      didPreview: didPreview,
                     )
                     ? () {
                         _roundClipBloc.add(DeleteShortRoundsEvent(threshold));
@@ -1402,7 +1411,8 @@ class _RoundClipPageState extends State<RoundClipPage>
     // 转换SegmentInfo为VideoClipSegment
     final initialSegments = _convertSegmentInfoToVideoClipSegment(state);
     final selectedIndex = state.selectedRoundIndex;
-    final initialSelectedSegmentId = selectedIndex != null &&
+    final initialSelectedSegmentId = Platform.isWindows &&
+            selectedIndex != null &&
             selectedIndex >= 0 &&
             selectedIndex < initialSegments.length
         ? initialSegments[selectedIndex].id

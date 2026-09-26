@@ -92,6 +92,33 @@ void main() {
       expect(RoundSegmentTools.shortRoundDeleteCount(rounds, 3), 2);
       expect(RoundSegmentTools.canConfirmShortRoundDeletion(rounds, 3), isTrue);
       expect(RoundSegmentTools.canConfirmShortRoundDeletion(rounds, 1), isFalse);
+      expect(
+        RoundSegmentTools.shouldEnableShortRoundDeleteConfirm(
+          rounds,
+          3,
+          isWindows: true,
+          didPreview: false,
+        ),
+        isTrue,
+      );
+      expect(
+        RoundSegmentTools.shouldEnableShortRoundDeleteConfirm(
+          rounds,
+          3,
+          isWindows: false,
+          didPreview: false,
+        ),
+        isFalse,
+      );
+      expect(
+        RoundSegmentTools.shouldEnableShortRoundDeleteConfirm(
+          rounds,
+          3,
+          isWindows: false,
+          didPreview: true,
+        ),
+        isTrue,
+      );
     });
 
     test('keeps the nearest remaining selection in range after deletion', () {

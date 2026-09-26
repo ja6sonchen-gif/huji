@@ -22,6 +22,15 @@ abstract final class RoundSegmentTools {
     double thresholdSeconds,
   ) => shortRoundDeleteCount(segments, thresholdSeconds) > 0;
 
+  static bool shouldEnableShortRoundDeleteConfirm(
+    List<SegmentInfo> segments,
+    double thresholdSeconds, {
+    required bool isWindows,
+    required bool didPreview,
+  }) =>
+      canConfirmShortRoundDeletion(segments, thresholdSeconds) &&
+      (isWindows || didPreview);
+
   /// Keeps a preferred selection valid after removing or restoring rounds.
   static int? nearestValidIndex(int preferredIndex, int segmentCount) {
     if (segmentCount <= 0) return null;
