@@ -34,6 +34,10 @@ import 'package:huji_app/l10n/l10n_extensions.dart';
 import 'package:huji_app/theme/themed_mobile.dart';
 import 'package:shared_ui/shared_ui.dart';
 
+@visibleForTesting
+double roundClipDesktopPreviewHeight(double windowHeight) =>
+    (windowHeight * 0.4).clamp(320.0, 560.0).toDouble();
+
 /// 回合编辑页面
 class RoundClipPage extends StatefulWidget {
   final EdittingVideoRecord? videoRecord;
@@ -236,8 +240,11 @@ class _RoundClipPageState extends State<RoundClipPage>
         return previous.videoRecord != current.videoRecord;
       },
       builder: (context, state) {
+        final isWindows = Platform.isWindows;
         return Container(
-          height: 200,
+          height: isWindows
+              ? roundClipDesktopPreviewHeight(MediaQuery.sizeOf(context).height)
+              : 200,
           margin: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.black,
@@ -471,17 +478,16 @@ class _RoundClipPageState extends State<RoundClipPage>
   }
 
   void _showDeleteShortRoundsDialog() {
-    var threshold = 3.0;
-    var didPreview = false;
+    var threshold = RoundSegmentTools.defaultShortRoundThresholdSeconds;
     showTpDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           final l10n = context.hujiL10n;
-          final count = RoundSegmentTools.shorterThan(
+          final count = RoundSegmentTools.shortRoundDeleteCount(
             _roundClipBloc.state.playBallSegments,
             threshold,
-          ).length;
+          );
           return AlertDialog(
             title: Text(l10n.deleteShortRounds),
             content: Column(
@@ -500,8 +506,7 @@ class _RoundClipPageState extends State<RoundClipPage>
                     didPreview = false;
                   }),
                 ),
-                if (didPreview)
-                  Text('${l10n.shortRoundPreview}: $count'),
+                Text('${l10n.shortRoundPreview}: $count'),
               ],
             ),
             actions: [
@@ -509,12 +514,11 @@ class _RoundClipPageState extends State<RoundClipPage>
                 onPressed: () => Navigator.of(dialogContext).pop(),
                 child: Text(l10n.taskStatusCancelledShort),
               ),
-              TextButton(
-                onPressed: () => setDialogState(() => didPreview = true),
-                child: Text(l10n.previewTitle),
-              ),
               FilledButton(
-                onPressed: didPreview && count > 0
+                onPressed: RoundSegmentTools.canConfirmShortRoundDeletion(
+                      _roundClipBloc.state.playBallSegments,
+                      threshold,
+                    )
                     ? () {
                         _roundClipBloc.add(DeleteShortRoundsEvent(threshold));
                         Navigator.of(dialogContext).pop();
@@ -1397,6 +1401,12 @@ class _RoundClipPageState extends State<RoundClipPage>
 
     // 转换SegmentInfo为VideoClipSegment
     final initialSegments = _convertSegmentInfoToVideoClipSegment(state);
+    final selectedIndex = state.selectedRoundIndex;
+    final initialSelectedSegmentId = selectedIndex != null &&
+            selectedIndex >= 0 &&
+            selectedIndex < initialSegments.length
+        ? initialSegments[selectedIndex].id
+        : null;
 
     _multiVideoPlayerBloc.add(PauseEvent());
     // 跳转到TrimmerView页面
@@ -1408,6 +1418,7 @@ class _RoundClipPageState extends State<RoundClipPage>
               builder: (context) => TrimmerView(
                 videoFile,
                 initialSegments: initialSegments,
+                initialSelectedSegmentId: initialSelectedSegmentId,
                 onSegmentsChanged: (segments) {
                   throttler.call(() {
                     _roundClipBloc.add(
@@ -1537,3 +1548,4 @@ class _RoundClipPageState extends State<RoundClipPage>
     _roundClipBloc.add(ShowErrorMessageEvent(message));
   }
 }
+

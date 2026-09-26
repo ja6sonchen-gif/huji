@@ -40,14 +40,33 @@ class ClipSegmentBloc extends Bloc<ClipSegmentEvent, ClipSegmentState> {
       event.totalDuration,
       event.segments,
     );
+    final selectedIndex = event.selectedSegmentId == null
+        ? -1
+        : segments.indexWhere((segment) =>
+              !segment.isDeleted && segment.id == event.selectedSegmentId);
+    final initializedSegments = selectedIndex < 0
+        ? segments
+        : [
+            for (var index = 0; index < segments.length; index++)
+              segments[index].copyWith(isSelected: index == selectedIndex),
+          ];
+    final selectedSegment = selectedIndex < 0
+        ? null
+        : initializedSegments[selectedIndex];
 
     emit(
       state.copyWith(
-        segments: segments,
+        segments: initializedSegments,
+        selectedSegment: selectedSegment,
         totalDuration: event.totalDuration,
         isInitialized: true,
       ),
     );
+    if (selectedSegment != null) {
+      _videoTrimmerBlocManager.trimmerBloc.add(
+        TrimmerSeekTo(Duration(milliseconds: selectedSegment.startTime)),
+      );
+    }
   }
 
   /// 将时间转换为像素位置
@@ -882,3 +901,4 @@ class ClipSegmentBloc extends Bloc<ClipSegmentEvent, ClipSegmentState> {
     );
   }
 }
+

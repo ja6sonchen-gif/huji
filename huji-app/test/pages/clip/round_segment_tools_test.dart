@@ -85,8 +85,19 @@ void main() {
     test('supports a configurable short-round threshold and previews count', () {
       final rounds = [segment(0, 1.5), segment(2, 4), segment(5, 9)];
 
+      expect(RoundSegmentTools.defaultShortRoundThresholdSeconds, 3.0);
       expect(RoundSegmentTools.shorterThan(rounds, 2), hasLength(1));
       expect(RoundSegmentTools.shorterThan(rounds, 3), hasLength(2));
+      expect(RoundSegmentTools.shortRoundDeleteCount(rounds, 2), 1);
+      expect(RoundSegmentTools.shortRoundDeleteCount(rounds, 3), 2);
+      expect(RoundSegmentTools.canConfirmShortRoundDeletion(rounds, 3), isTrue);
+      expect(RoundSegmentTools.canConfirmShortRoundDeletion(rounds, 1), isFalse);
+    });
+
+    test('keeps the nearest remaining selection in range after deletion', () {
+      expect(RoundSegmentTools.nearestValidIndex(4, 3), 2);
+      expect(RoundSegmentTools.nearestValidIndex(2, 3), 2);
+      expect(RoundSegmentTools.nearestValidIndex(0, 0), isNull);
     });
 
     test('deletes only rounds shorter than the threshold and restores them', () {
@@ -112,3 +123,4 @@ void main() {
     });
   });
 }
+

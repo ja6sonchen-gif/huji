@@ -20,5 +20,18 @@ void main() {
 
       expect(state.getActiveSegmentAt(3500), isNull);
     });
+
+    test('selected card id is the id highlighted on the timeline', () {
+      final selected = rounds.last.copyWith(isSelected: true);
+      final state = ClipSegmentState(
+        segments: [rounds.first, selected],
+        selectedSegment: selected,
+      );
+
+      expect(state.selectedSegment?.id, state.segments.last.id);
+      expect(state.segments.where((segment) => segment.isSelected).single.id,
+          'round-2');
+    });
   });
 }
+

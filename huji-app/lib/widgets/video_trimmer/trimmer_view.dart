@@ -29,12 +29,14 @@ import 'package:shared_ui/shared_ui.dart';
 class TrimmerView extends StatefulWidget {
   final File file;
   final List<VideoClipSegment>? initialSegments;
+  final String? initialSelectedSegmentId;
   final void Function(List<VideoClipSegment>)? onSegmentsChanged;
 
   const TrimmerView(
     this.file, {
     super.key,
     this.initialSegments,
+    this.initialSelectedSegmentId,
     this.onSegmentsChanged,
   });
 
@@ -51,6 +53,7 @@ class _TrimmerViewState extends State<TrimmerView> {
     _videoTrimmerBlocManager = VideoTrimmerBlocManager(
       file: widget.file,
       initialSegments: widget.initialSegments,
+      initialSelectedSegmentId: widget.initialSelectedSegmentId,
     );
   }
 
@@ -230,7 +233,7 @@ class TrimmerEditor extends StatelessWidget {
           return Column(
             children: [
               Expanded(child: _buildVideoPreview(context)),
-              if (!PlatformCapability.isDesktop) _buildSegmentOverview(context),
+              _buildSegmentOverview(context),
               _buildControls(context),
               SizedBox(
                 // 块高含底部 slack（restcut 160px 块的观感），桌面 slack=0 不变
@@ -1214,3 +1217,4 @@ class _SegmentOverviewStripState extends State<_SegmentOverviewStrip> {
     );
   }
 }
+

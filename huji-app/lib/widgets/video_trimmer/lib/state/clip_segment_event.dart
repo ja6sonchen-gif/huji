@@ -11,11 +11,16 @@ abstract class ClipSegmentEvent extends Equatable {
 class ClipSegmentInitialize extends ClipSegmentEvent {
   final int totalDuration;
   final List<VideoClipSegment>? segments;
+  final String? selectedSegmentId;
 
-  const ClipSegmentInitialize({required this.totalDuration, this.segments});
+  const ClipSegmentInitialize({
+    required this.totalDuration,
+    this.segments,
+    this.selectedSegmentId,
+  });
 
   @override
-  List<Object?> get props => [totalDuration, segments];
+  List<Object?> get props => [totalDuration, segments, selectedSegmentId];
 }
 
 class ClipSegmentDeleteSelected extends ClipSegmentEvent {}
@@ -121,3 +126,4 @@ class ClipSegmentDividerDragUpdate extends ClipSegmentEvent {
   @override
   List<Object> get props => [dividerIndex, newPosition, totalWidth];
 }
+

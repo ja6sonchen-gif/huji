@@ -10,11 +10,12 @@ abstract class TrimmerEvent extends Equatable {
 
 class TrimmerLoadVideo extends TrimmerEvent {
   final List<VideoClipSegment>? initialSegments;
+  final String? initialSelectedSegmentId;
 
-  const TrimmerLoadVideo({this.initialSegments});
+  const TrimmerLoadVideo({this.initialSegments, this.initialSelectedSegmentId});
 
   @override
-  List<Object?> get props => [initialSegments];
+  List<Object?> get props => [initialSegments, initialSelectedSegmentId];
 }
 
 class TrimmerTogglePlayPause extends TrimmerEvent {}
@@ -112,3 +113,4 @@ class TrimmerSetMute extends TrimmerEvent {
   @override
   List<Object> get props => [mute];
 }
+

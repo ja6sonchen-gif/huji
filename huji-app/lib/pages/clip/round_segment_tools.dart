@@ -10,6 +10,23 @@ class RemovedRoundEntry {
 /// Pure helpers shared by the round editor and export preparation.
 abstract final class RoundSegmentTools {
   static const minimumDurationSeconds = 0.5;
+  static const defaultShortRoundThresholdSeconds = 3.0;
+
+  static int shortRoundDeleteCount(
+    List<SegmentInfo> segments,
+    double thresholdSeconds,
+  ) => shorterThan(segments, thresholdSeconds).length;
+
+  static bool canConfirmShortRoundDeletion(
+    List<SegmentInfo> segments,
+    double thresholdSeconds,
+  ) => shortRoundDeleteCount(segments, thresholdSeconds) > 0;
+
+  /// Keeps a preferred selection valid after removing or restoring rounds.
+  static int? nearestValidIndex(int preferredIndex, int segmentCount) {
+    if (segmentCount <= 0) return null;
+    return preferredIndex.clamp(0, segmentCount - 1).toInt();
+  }
 
   static int indexOfSegment(List<SegmentInfo> segments, SegmentInfo target) =>
       segments.indexWhere((segment) => _sameSegment(segment, target));
@@ -145,3 +162,4 @@ abstract final class RoundSegmentTools {
       a.startSeconds == b.startSeconds &&
       a.endSeconds == b.endSeconds;
 }
+

@@ -209,6 +209,8 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
   ) async {
     final record = state.videoRecord;
     if (record == null) return;
+    final selectedBeforeDelete = state.currentPlayingSegment;
+    final selectedBeforeIndex = state.selectedRoundIndex;
     final indexedSegments = record.allMatchSegments
         .asMap()
         .entries
@@ -238,12 +240,30 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
           .where((segment) => !deletedSegments.any((d) => _sameSegment(d, segment)))
           .toList(),
     );
+    final remainingPlayBallSegments = updatedRecord.allMatchSegments
+        .where((segment) => segment.actionType == ActionType.playBall)
+        .toList();
+    final selectedRemainingIndex = selectedBeforeDelete == null
+        ? -1
+        : RoundSegmentTools.indexOfSegment(
+            remainingPlayBallSegments,
+            selectedBeforeDelete,
+          );
+    final nextSelectedIndex = selectedBeforeDelete == null
+        ? null
+        : selectedRemainingIndex >= 0
+        ? selectedRemainingIndex
+        : RoundSegmentTools.nearestValidIndex(
+            selectedBeforeIndex ?? 0,
+            remainingPlayBallSegments.length,
+          );
     try {
       await _persistEdits(updatedRecord);
       emit(state.copyWith(
         videoRecord: updatedRecord,
         lastDeletedRounds: deleted,
-        clearSelectedRound: true,
+        selectedRoundIndex: nextSelectedIndex,
+        clearSelectedRound: nextSelectedIndex == null,
         isSegmentPlaying: false,
       ));
       add(const UpdatePlaybackItemsEvent());
@@ -285,6 +305,12 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
       emit(state.copyWith(
         videoRecord: updatedRecord,
         lastDeletedRounds: const [],
+        selectedRoundIndex: RoundSegmentTools.indexOfSegment(
+          updatedRecord.allMatchSegments
+              .where((segment) => segment.actionType == ActionType.playBall)
+              .toList(),
+          deleted.first.segment,
+        ),
       ));
       add(const UpdatePlaybackItemsEvent());
     } catch (e) {
@@ -965,3 +991,4 @@ class RoundClipBloc extends Bloc<RoundClipEvent, RoundClipState> {
     return super.close();
   }
 }
+

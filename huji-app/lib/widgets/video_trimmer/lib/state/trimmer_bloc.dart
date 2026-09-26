@@ -151,6 +151,7 @@ class TrimmerBloc extends Bloc<TrimmerEvent, TrimmerState> {
           ClipSegmentInitialize(
             totalDuration: duration.inMilliseconds,
             segments: event.initialSegments,
+            selectedSegmentId: event.initialSelectedSegmentId,
           ),
         );
       }
@@ -666,3 +667,4 @@ class TrimmerBloc extends Bloc<TrimmerEvent, TrimmerState> {
     return super.close();
   }
 }
+

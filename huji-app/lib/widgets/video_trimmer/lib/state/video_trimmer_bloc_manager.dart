@@ -12,9 +12,14 @@ class VideoTrimmerBlocManager {
   VideoTrimmerBlocManager({
     required File file,
     required List<VideoClipSegment>? initialSegments,
+    String? initialSelectedSegmentId,
   }) {
     clipSegmentBloc = ClipSegmentBloc(videoTrimmerBlocManager: this);
     trimmerBloc = TrimmerBloc(file: file, videoTrimmerBlocManager: this);
-    trimmerBloc.add(TrimmerLoadVideo(initialSegments: initialSegments));
+    trimmerBloc.add(TrimmerLoadVideo(
+      initialSegments: initialSegments,
+      initialSelectedSegmentId: initialSelectedSegmentId,
+    ));
   }
 }
+
